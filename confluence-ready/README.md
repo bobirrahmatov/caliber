@@ -6,7 +6,7 @@ Use only `WCSpedia-configured-upload.zip`, which expands to one `confluence-read
 
 1. Upload all files from `attachments/` to **3962195316**, replacing files with the same names.
 2. In your existing **navBar** page, remove the old WCSpedia Add document macros, WCSpedia stylesheet links, notifications and article-helper script fragments. Keep your navigation, native Create control and site font/theme CSS.
-3. Paste **`html/wcspedia-navbar.html` once** into an HTML macro in the right-hand action area. This includes the single stylesheet, Add document pair, notifications and scoped child-article helpers. Keep `{include:wcspedia:navBar}`.
+3. Paste **`html/wcspedia-navbar.html` once** into an HTML macro in the header. The Add document control floats at the top right, 12px below the navbar. This includes the single stylesheet, Add document pair, notifications and scoped child-article helpers. Keep `{include:wcspedia:navBar}`.
 4. Replace each interface page's macro with its matching `html/wcspedia-*.html` fragment, using the page-ID table below. Do not paste the navbar fragment into those pages.
 5. Publish and hard-refresh. The attachment URLs have no `&v=` cache suffix. No config attachment or standalone widget stylesheet is needed.
 

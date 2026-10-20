@@ -5,53 +5,44 @@
  */
 (function () {
   'use strict';
-  var revision = '7d77af4f5e76';
-  function placeBeforeCreate(host) {
-    var headerSelector = '#navHeader,#navBar,#header,header,.aui-header,[role="banner"],[data-wcs-header-actions]';
-    var header = host.closest(headerSelector) || document.querySelector(headerSelector);
-    var observer = null, frame = null, timeout = null, stopped = false;
-    function stop() {
+  var revision = 'b76b4fbf7a16';
+  function placeFloating(host) {
+    // Portal out of themed headers: transforms/overflow there can clip fixed controls.
+    var header = host.closest('#navHeader,#navBar,[role="banner"],header,#header,.aui-header');
+    var frame = null, observer = null, stopped = false;
+    host.setAttribute('data-wcs-floating-add', '');
+    host.removeAttribute('data-wcs-before-create');
+    document.body.append(host);
+    function place() {
+      frame = null;
+      if (stopped || !host.isConnected) return;
+      if (!header || !header.isConnected) header = document.querySelector('#navHeader,#navBar') || document.querySelector('[role="banner"],header,#header,.aui-header');
+      var bottom = header && header.getClientRects().length ? header.getBoundingClientRect().bottom : 72;
+      var height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      var top = Math.max(12, Math.min(Math.max(0, bottom) + 12, height - 72)) + 'px';
+      if (host.style.getPropertyValue('--wcs-add-top') !== top) {
+        host.style.setProperty('--wcs-add-top', top);
+        window.dispatchEvent(new Event('wcspedia:add-position'));
+      }
+      if (observer && header && observedHeader !== header) {
+        observer.disconnect(); observer.observe(header); observedHeader = header;
+      }
+    }
+    function schedule() { if (!stopped && frame == null) frame = window.requestAnimationFrame(place); }
+    var observedHeader = null;
+    if (typeof window.ResizeObserver === 'function') observer = new window.ResizeObserver(schedule);
+    place();
+    window.addEventListener('resize', schedule);
+    window.addEventListener('scroll', schedule, {passive:true, capture:true});
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', schedule);
+    return function () {
       stopped = true;
       if (observer) observer.disconnect();
       if (frame != null) window.cancelAnimationFrame(frame);
-      if (timeout != null) window.clearTimeout(timeout);
-      observer = null; frame = null; timeout = null;
-    }
-    function place() {
-      if (stopped || !header || !host.isConnected) return false;
-      var selectors = ['[data-wcs-create-anchor]', '#quick-create-page-button', '#create-page-button'];
-      for (var i = 0; i < selectors.length; i++) {
-        var candidates = header.querySelectorAll(selectors[i]);
-        for (var j = 0; j < candidates.length; j++) {
-          var control = candidates[j];
-          if (host.contains(control) || control.closest('[hidden],[aria-hidden="true"],[role="dialog"],[contenteditable="true"],#editor,#rte,#content-editor,#wcspedia') || !control.getClientRects().length) continue;
-          var group = control.closest('.aui-buttons,.aui-button-group,[data-wcs-create-anchor]');
-          var before = group && group !== header && header.contains(group) ? group : control;
-          // Keep native Create + template controls together. A list's existing
-          // LI can contain our inline host before that group; the disabled widget
-          // stays in the same slot while permissions are checked.
-          var parent = before.parentElement;
-          if (before.tagName === 'LI') { parent = before; before = Array.from(parent.children).find(function (item) { return item !== host; }); }
-          if (!before || !parent || /^(UL|OL)$/.test(parent.tagName) || before === host || host.contains(parent)) continue;
-          if (host.parentElement !== parent || host.nextElementSibling !== before) parent.insertBefore(host, before);
-          host.setAttribute('data-wcs-before-create', '');
-          stop(); return true;
-        }
-      }
-      return false;
-    }
-    if (!header || place()) return stop;
-    // Some shared headers insert native actions after this macro. Observe only
-    // the header, coalesce changes, and release all work after success/deadline.
-    if (typeof window.MutationObserver === 'function') {
-      observer = new window.MutationObserver(function () {
-        if (stopped || frame != null) return;
-        frame = window.requestAnimationFrame(function () { frame = null; place(); });
-      });
-      observer.observe(header, {childList:true, subtree:true, attributes:true, attributeFilter:['id','class','hidden','aria-hidden','style']});
-      timeout = window.setTimeout(stop, 8000);
-    }
-    return stop;
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', schedule, true);
+      if (window.visualViewport) window.visualViewport.removeEventListener('resize', schedule);
+    };
   }
   function start() {
     // Included headers and older page macros can both contain a mount. Own
@@ -76,10 +67,11 @@
     function error(host, message, code) {
       var button = document.createElement('button');
       button.type = 'button'; button.disabled = true; button.className = 'wcs-add-document-trigger';
-      button.textContent = 'Add document'; button.title = message;
+      button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="wcs-add-document-label">Add document</span>'; button.setAttribute('aria-label', 'Add document'); button.title = message;
       var shell = document.createElement('div'); shell.className = 'wcs-add-document'; shell.append(button);
       host.replaceChildren(shell); host.hidden = false; host.style.removeProperty('display');
-      placeBeforeCreate(host);
+      if (host.wcsStopFloating) host.wcsStopFloating();
+      host.wcsStopFloating = placeFloating(host);
       host.dataset.wcsAddState = 'error';
       host.dataset.wcsAddMessage = message;
       host.dataset.wcsAddCode = code || 'CONFIGURATION';
@@ -120,7 +112,8 @@
         var adapter = modules.Confluence.create(configuration);
         var unavailable = !adapter.info().entitlementsConfigured ? 'Add document needs entitlements.json on the configured attachments page.' :
           !adapter.info().workflowConfigured || !adapter.info().workspaceConfigured ? 'Document creation is not connected.' : '';
-        var stopPlacement = placeBeforeCreate(host);
+        if (host.wcsStopFloating) host.wcsStopFloating();
+        var stopPlacement = host.wcsStopFloating = placeFloating(host);
         var handle = modules.AddDocument.mount(host, {
           types: settings.types,
           createUrl: context + '/pages/viewpage.action?pageId=' + encodeURIComponent(workspacePageId) + '#/create',
@@ -169,7 +162,7 @@
         host.dataset.wcsHeaderWidgetStarted = revision;
         function onShow(event) {
           if (!event.persisted || disposed) return;
-          stopPlacement = placeBeforeCreate(host);
+          stopPlacement = host.wcsStopFloating = placeFloating(host);
           retry();
         }
         function onHide(event) {

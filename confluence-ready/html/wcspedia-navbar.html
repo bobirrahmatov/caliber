@@ -34,12 +34,10 @@ Paste this whole fragment into the existing header page's HTML macro.
 Upload wcspedia-add-document.js and wcspedia-add-documentHTMLPage.js to the
 shared attachments page. The existing global wcspedia-style.css styles it.
 Page IDs and both attachment URLs are already configured. No extra header, font, CSS link,
-application root, or page WCS_CONFIG is created here. Keep this div in the
-existing header action row. Startup places it before native Create. For a
-custom Create control, mark its button group with data-wcs-create-anchor.
-If neither target exists, the div stays where you place it.
+application root, or page WCS_CONFIG is created here. Keep this macro in navBar.
+Startup positions one floating button at the top right, 12px below the navbar.
 -->
-<div data-wcs-header-add-document aria-label="Add a WCSpedia document"><div class="wcs-add-document"><button type="button" class="wcs-add-document-trigger" disabled title="Checking access…">Add document</button></div></div>
+<div data-wcs-header-add-document aria-label="Add a WCSpedia document"><div class="wcs-add-document"><button type="button" class="wcs-add-document-trigger" disabled title="Checking access…" aria-label="Add document"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="wcs-add-document-label">Add document</span></button></div></div>
 <script>
 window.WCSAddDocumentUnavailable = function (message) {
   var hosts = Array.from(document.querySelectorAll('[data-wcs-header-add-document]'));
@@ -51,7 +49,7 @@ window.WCSAddDocumentUnavailable = function (message) {
   if (host && !host.dataset.wcsHeaderWidgetStarted) {
     var shell = document.createElement('div'), button = document.createElement('button');
     shell.className = 'wcs-add-document'; button.className = 'wcs-add-document-trigger';
-    button.type = 'button'; button.disabled = true; button.textContent = 'Add document'; button.title = message;
+    button.type = 'button'; button.disabled = true; button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="wcs-add-document-label">Add document</span>'; button.setAttribute('aria-label', 'Add document'); button.title = message;
     shell.append(button); host.replaceChildren(shell); host.hidden = false; host.style.removeProperty('display');
     host.dataset.wcsAddState = 'error'; host.dataset.wcsAddMessage = message;
   }

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === '7d77af4f5e76') return;
+  if (registry.addDocument && registry.addDocument.version === 'b76b4fbf7a16') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -3706,7 +3706,29 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   'use strict';
   var instances = new WeakMap(), sequence = 0;
   var plus = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
-  var down = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+  // Inline vectors keep the menu independent of image requests and attachment URLs.
+  var typeIcons = {
+    "job-aid": "<rect x=\"5\" y=\"5\" width=\"14\" height=\"16\" rx=\"2\"/><rect x=\"9\" y=\"3\" width=\"6\" height=\"4\" rx=\"1\"/><path d=\"m8 13 2 2 5-5M8 18h8\"/>",
+    "procedure": "<rect x=\"3\" y=\"3\" width=\"7\" height=\"5\" rx=\"1\"/><rect x=\"14\" y=\"16\" width=\"7\" height=\"5\" rx=\"1\"/><path d=\"M6.5 8v10.5H14m-3-3 3 3-3 3M14 5h7m-7 4h5\"/>",
+    "knowledge-sharing": "<circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M2 15v-2a4 4 0 0 1 8 0v2m4 0v-2a4 4 0 0 1 8 0v2M5 19h14m-3-3 3 3-3 3m-8-6-3 3 3 3\"/>",
+    "blog": "<path d=\"M12 4H5a2 2 0 0 0-2 2v14a1 1 0 0 0 1 1h14a2 2 0 0 0 2-2v-7M8 16l1-4L18 3a2.1 2.1 0 0 1 3 3l-9 9-4 1Zm8-11 3 3M7 18h7\"/>",
+    "training": "<path d=\"m2 8 10-5 10 5-10 5L2 8Zm4 2v7c4 3 8 3 12 0v-7m4-2v9\"/>",
+    "reference": "<path d=\"M12 6c-3-2-6-2-10-1v14c4-1 7-1 10 1 3-2 6-2 10-1V5c-4-1-7-1-10 1Zm0 0v14M5 9h4m-4 4h4m6-4h4m-4 4h4\"/>",
+    "report": "<path d=\"M14 3H5v18h14V8l-5-5Zm0 0v5h5M8 17v-3m4 3v-6m4 6v-4\"/>",
+    "guide": "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"m16 8-2.5 5.5L8 16l2.5-5.5L16 8Z\"/>",
+    "playbook": "<rect x=\"4\" y=\"3\" width=\"16\" height=\"18\" rx=\"2\"/><path d=\"M8 3v18m3-13 6 4-6 4V8Z\"/>",
+    "checklist": "<path d=\"m3 6 1.5 1.5L7 5m-4 7 1.5 1.5L7 11m-4 7 1.5 1.5L7 17M11 6h10m-10 6h10m-10 6h10\"/>",
+    "template": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M3 9h18M9 9v12m4-8h4m-4 4h4\"/>",
+    "faq": "<path d=\"M21 14a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v7Z\"/><path d=\"M9.5 8a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 3\"/><circle cx=\"12\" cy=\"14\" r=\".5\" fill=\"currentColor\" stroke=\"none\"/>",
+    "document": "<path d=\"M14 3H5v18h14V8l-5-5Zm0 0v5h5M8 12h8m-8 4h6\"/>"
+};
+  function typeIcon(type) {
+    function key(value) { return String(value || '').trim().toLowerCase().replace(/[ _]+/g, '-'); }
+    var name = key(type.value);
+    if (!Object.prototype.hasOwnProperty.call(typeIcons, name)) name = key(type.label);
+    var paths = Object.prototype.hasOwnProperty.call(typeIcons, name) ? typeIcons[name] : typeIcons.document;
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + paths + '</svg>';
+  }
   function contentTypes(values) {
     var seen = new Set();
     return (Array.isArray(values) ? values : []).map(function (item) {
@@ -3742,7 +3764,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     var shell = doc.createElement('div'), trigger = doc.createElement('button');
     host.setAttribute('data-wcs-add-document-host', '');
     shell.className = 'wcs-add-document'; trigger.type = 'button'; trigger.className = 'wcs-add-document-trigger';
-    trigger.innerHTML = plus + '<span>Add document</span>' + down;
+    trigger.innerHTML = plus + '<span class="wcs-add-document-label">Add document</span>';
+    trigger.setAttribute('aria-label', 'Add document');
     trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');
     trigger.setAttribute('aria-controls', id);
     shell.append(trigger);
@@ -3789,7 +3812,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if (!panel) return;
       panel.remove(); panel = null; trigger.setAttribute('aria-expanded', 'false');
       doc.removeEventListener('pointerdown', outside, true); doc.removeEventListener('focusin', outsideFocus, true);
-      doc.removeEventListener('keydown', menuKeys, true); win.removeEventListener('resize', position); win.removeEventListener('scroll', position, true);
+      doc.removeEventListener('keydown', menuKeys, true); win.removeEventListener('resize', position); win.removeEventListener('scroll', position, true); win.removeEventListener('wcspedia:add-position', position);
       if (restore) focusTrigger();
     }
     function outside(event) { if (panel && !panel.contains(event.target) && !shell.contains(event.target)) close(false); }
@@ -3799,7 +3822,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var rect = trigger.getBoundingClientRect(), view = win.visualViewport;
       var width = view ? view.width : win.innerWidth, height = view ? view.height : win.innerHeight, pad = 12, gap = 8;
       panel.style.maxWidth = Math.max(0, width - pad * 2) + 'px';
-      panel.style.maxHeight = Math.max(0, height - pad * 2) + 'px';
+      panel.style.maxHeight = Math.max(48, height - Math.max(pad, rect.bottom + gap) - pad) + 'px';
       var size = panel.getBoundingClientRect(), left = Math.max(pad, Math.min(rect.right - size.width, width - size.width - pad));
       var top = rect.bottom + gap;
       if (top + size.height > height - pad && rect.top - size.height - gap >= pad) top = rect.top - size.height - gap;
@@ -3837,7 +3860,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         var item = doc.createElement('button'); item.type = 'button'; item.className = 'wcs-add-document-option'; item.setAttribute('role', 'menuitem'); item.tabIndex = -1;
         item.dataset.label = type.label.toLowerCase();
         var label = doc.createElement('span'); label.className = 'wcs-add-document-option-label'; label.textContent = type.label;
-        item.append(label);
+        var icon = doc.createElement('span'); icon.className = 'wcs-add-document-option-icon'; icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = typeIcon(type);
+        item.append(icon, label);
         if (type.description) { var description = doc.createElement('span'); description.className = 'wcs-add-document-option-description'; description.textContent = type.description; item.append(description); }
         item.addEventListener('click', async function (event) {
           event.preventDefault(); event.stopPropagation();
@@ -3863,7 +3887,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       });
       doc.body.append(panel); trigger.setAttribute('aria-expanded', 'true'); position();
       doc.addEventListener('pointerdown', outside, true); doc.addEventListener('focusin', outsideFocus, true); doc.addEventListener('keydown', menuKeys, true);
-      win.addEventListener('resize', position); win.addEventListener('scroll', position, true);
+      win.addEventListener('resize', position); win.addEventListener('scroll', position, true); win.addEventListener('wcspedia:add-position', position);
       var items = menuItems(); if (items.length) items[last ? items.length - 1 : 0].focus({preventScroll:true});
     }
     function checkPermission() {
@@ -3947,5 +3971,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: '7d77af4f5e76', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument };
+  registry.addDocument = { version: 'b76b4fbf7a16', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument };
 })();
