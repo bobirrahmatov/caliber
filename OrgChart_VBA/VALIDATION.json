@@ -1,0 +1,79 @@
+{
+  "syntax": {
+    "engine": "ANTLR VBA grammar 0.0.67; not the Excel VBA compiler",
+    "files": [
+      {
+        "file": "WCHOrgTree.bas",
+        "grammar_errors": [],
+        "procedures": 31
+      },
+      {
+        "file": "WCHOrgEvents.cls",
+        "grammar_errors": [],
+        "procedures": 3
+      }
+    ]
+  },
+  "layout": {
+    "method": "Independent JS model of layout and scope closure; VBA/Excel execution not available",
+    "scenarios": [
+      {
+        "name": "8 immediate directs - all visible",
+        "nodes": 9,
+        "width": 280,
+        "height": 1164,
+        "overlaps": 0
+      },
+      {
+        "name": "4 direct reports + 5 sub-directs: 9 employees plus context manager",
+        "nodes": 10,
+        "width": 1372,
+        "height": 424,
+        "overlaps": 0
+      },
+      {
+        "name": "500 direct reports without pagination",
+        "nodes": 501,
+        "width": 280,
+        "height": 67540,
+        "overlaps": 0
+      },
+      {
+        "name": "20 reporting levels",
+        "nodes": 21,
+        "width": 252,
+        "height": 3232,
+        "overlaps": 0
+      },
+      {
+        "name": "4 directs each with 5 sub-directs",
+        "nodes": 25,
+        "width": 1204,
+        "height": 936,
+        "overlaps": 0
+      },
+      {
+        "name": "Mixed-width and long-caption branches",
+        "nodes": 19,
+        "width": 896,
+        "height": 1140,
+        "overlaps": 0
+      },
+      {
+        "name": "Empty scope root only",
+        "nodes": 1,
+        "width": 252,
+        "height": 112,
+        "overlaps": 0
+      }
+    ],
+    "scopeClosureCases": 2
+  },
+  "excel_vba_compiled": false,
+  "excel_runtime_tested": false,
+  "files": {
+    "WCHOrgEvents.cls": "abb35e5bbb5acebf4bb5f6f7508987269cd00e0bee3d0ada6195e9fd6a52e8da",
+    "INSTALL.txt": "fd303b841b2a004de9c51ed18f9843cbb2127dd9fd0619fe5c9ebfce63431b1b",
+    "WCHOrgTree.bas": "de216a8864984a42b75e3502d07416c942b6bf9878963414418f7ccc53d74bb8"
+  }
+}
