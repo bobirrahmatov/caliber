@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "isDemo": false,
+  "people": [
+    {
+      "id": "person-br47149",
+      "name": "BR47149",
+      "soeid": "BR47149",
+      "role": "Manager",
+      "confluence": {
+        "username": "BR47149"
+      }
+    }
+  ],
+  "areas": [
+    {
+      "id": "credit-approval-control",
+      "title": "Credit Approval Control",
+      "description": "Approval records, checks and decision evidence.",
+      "icon": "shield"
+    },
+    {
+      "id": "credit-information-management",
+      "title": "Credit Information Management",
+      "description": "Accurate records and clear data ownership.",
+      "icon": "database"
+    },
+    {
+      "id": "credit-management-reporting",
+      "title": "Credit Management Reporting",
+      "description": "Reporting preparation and quality checks.",
+      "icon": "chart"
+    },
+    {
+      "id": "deal-closing",
+      "title": "Deal Closing",
+      "description": "Readiness checks and complete handovers.",
+      "icon": "check"
+    },
+    {
+      "id": "documentation-pledging",
+      "title": "Documentation & Pledging Team",
+      "description": "Document records, pledges and exceptions.",
+      "icon": "file"
+    },
+    {
+      "id": "emea-credit-admin",
+      "title": "EMEA Credit Admin",
+      "description": "Regional administration and team handovers.",
+      "icon": "globe"
+    },
+    {
+      "id": "loan-management",
+      "title": "Loan Management",
+      "description": "Servicing records and lifecycle activities.",
+      "icon": "briefcase"
+    },
+    {
+      "id": "regional-operating-manuals",
+      "title": "Regional Operating Manuals",
+      "description": "Regional guidance and operating knowledge.",
+      "icon": "book"
+    }
+  ],
+  "types": [
+    "Job aid",
+    "Procedure",
+    "Knowledge sharing",
+    "Blog",
+    "Training",
+    "Reference",
+    "Report",
+    "Guide",
+    "Playbook",
+    "Checklist",
+    "Template",
+    "FAQ"
+  ],
+  "documents": [],
+  "taxonomyRevision": 1,
+  "taxonomyAudit": []
+}

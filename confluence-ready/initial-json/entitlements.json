@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "records": [
+    {
+      "id": "grant-person-br47149",
+      "soeid": "BR47149",
+      "displayName": "BR47149",
+      "scope": "*",
+      "permissions": [
+        "content.create",
+        "content.delete",
+        "content.edit",
+        "entitlements.add",
+        "entitlements.edit",
+        "entitlements.revoke",
+        "entitlements.view"
+      ],
+      "active": true
+    }
+  ],
+  "audit": []
+}

@@ -1,0 +1,130 @@
+<!-- Install ONCE in the right-hand action area of the EXISTING navBar. Replace old WCSpedia header fragments; preserve your navigation and fonts. -->
+<!-- WCSpedia component: wcspedia-global-styles.html -->
+<!-- Reference only: this stylesheet is loaded ONCE in your existing global Look and Feel/header.
+If the same WCSpedia component CSS is already loaded globally, do not add a second link.
+Replace 3962195316 with the page hosting the attachments.
+No header, fonts, scripts or application root are added here.
+-->
+<link rel="stylesheet" href="/confluence/download/attachments/3962195316/wcspedia-style.css?api=v2">
+
+<script>
+(function () {
+  // Collapse only links to this exact attachment, including older cache suffixes.
+  var links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).filter(function (link) {
+    var url = new URL(link.href, location.href);
+    return url.origin === location.origin && url.pathname === '/confluence/download/attachments/3962195316/wcspedia-style.css';
+  });
+  if (links.length) {
+    links[0].href = '/confluence/download/attachments/3962195316/wcspedia-style.css?api=v2';
+    links.slice(1).forEach(function (link) { link.remove(); });
+  }
+})();
+</script>
+<!-- WCSpedia component: wcspedia-notifications-header.html -->
+<!-- Paste once into your EXISTING shared header HTML macro.
+Replace 3962195316 with the numeric page hosting the attachments.
+Update the existing global wcspedia-style.css inclusion to this build's revision.
+This defines shared toast notifications; it adds no header or application root.
+-->
+<script src="/confluence/download/attachments/3962195316/wcspedia-notifications.js?api=v2"></script>
+
+<!-- WCSpedia component: wcspedia-header-widget.html -->
+<!-- WCSpedia shared-header Add document widget — Covenants-style loading.
+Paste this whole fragment into the existing header page's HTML macro.
+Upload wcspedia-add-document.js and wcspedia-add-documentHTMLPage.js to the
+shared attachments page. The existing global wcspedia-style.css styles it.
+Page IDs and both attachment URLs are already configured. No extra header, font, CSS link,
+application root, or page WCS_CONFIG is created here. Keep this div in the
+existing header action row. Startup places it before native Create. For a
+custom Create control, mark its button group with data-wcs-create-anchor.
+If neither target exists, the div stays where you place it.
+-->
+<div data-wcs-header-add-document aria-label="Add a WCSpedia document"><div class="wcs-add-document"><button type="button" class="wcs-add-document-trigger" disabled title="Checking access…">Add document</button></div></div>
+<script>
+window.WCSAddDocumentUnavailable = function (message) {
+  var hosts = Array.from(document.querySelectorAll('[data-wcs-header-add-document]'));
+  var host = hosts.find(function (node) { return node.dataset.wcsHeaderWidgetStarted; }) ||
+    hosts.find(function (node) { return node.closest('#navHeader,#navBar'); }) || hosts[0];
+  hosts.forEach(function (duplicate) { if (duplicate !== host && !duplicate.contains(host)) duplicate.remove(); });
+  // A failed duplicate include must not replace an already mounted widget's
+  // DOM, leaving its event handlers attached to a detached button.
+  if (host && !host.dataset.wcsHeaderWidgetStarted) {
+    var shell = document.createElement('div'), button = document.createElement('button');
+    shell.className = 'wcs-add-document'; button.className = 'wcs-add-document-trigger';
+    button.type = 'button'; button.disabled = true; button.textContent = 'Add document'; button.title = message;
+    shell.append(button); host.replaceChildren(shell); host.hidden = false; host.style.removeProperty('display');
+    host.dataset.wcsAddState = 'error'; host.dataset.wcsAddMessage = message;
+  }
+  console.warn('[WCSpedia Add document] ' + message);
+};
+window.WCS_ADD_DOCUMENT_CONFIG = {
+  mode: 'confluence',
+  authoringMode: 'confluence-session',
+  spaceKey: "wcspedia",
+  nativePublication: {
+    enabled: true,
+    workingRootPageId: '3961735834',
+    insightsPageId: '3961735728'
+  },
+  contextPath: '/confluence',
+  attachmentPageId: '3962195316', // Hosts the scripts and entitlements.json.
+  rootPageId: '3954553300',
+  workspacePageId: '3961735744',
+  workflowEndpoint: "",
+  workspaceEndpoint: "",
+  accessTimeoutMs: 12000,
+  types: ['Job aid', 'Knowledge sharing', 'Blog', 'Training', 'Reference', 'Report', 'Guide', 'Playbook', 'Checklist', 'Template', 'FAQ']
+};
+</script>
+<script src="/confluence/download/attachments/3962195316/wcspedia-add-document.js?api=v2" onerror="window.WCSAddDocumentUnavailable('Could not load wcspedia-add-document.js. Check the attachment page ID, filename and access.');"></script>
+<script src="/confluence/download/attachments/3962195316/wcspedia-add-documentHTMLPage.js?api=v2" onerror="window.WCSAddDocumentUnavailable('Could not load wcspedia-add-documentHTMLPage.js. Check the attachment page ID, filename and access.');"></script>
+
+<!-- WCSpedia component: wcspedia-page-style-flags-header.html -->
+<!-- WCSpedia page-view flags: add ONCE to the HTML macro in your existing
+shared header / Look and Feel include. Keep the existing Citi theme CSS.
+Replace 3962195316 with the page hosting this JS.
+Do not put a page marker, app root or styling-demo switch panel in the header.
+The script runs only on explicitly marked native child document views, not native edit screens.
+-->
+<script src="/confluence/download/attachments/3962195316/wcspedia-page-style-flags.js?api=v2"></script>
+
+<!-- WCSpedia component: wcspedia-article-discussion-header.html -->
+<!-- Paste ONCE in the existing shared header HTML macro. Adds no header or font.
+     Requires this package's global wcspedia-style.css. Comments use native REST.
+     Native JSON engagement uses the signed-in session and page permissions. -->
+<script>
+window.WCS_ARTICLE_DISCUSSION_CONFIG = {
+  authoringMode: 'confluence-session',
+  contextPath: '/confluence',
+  spaceKey: "wcspedia",
+  rootPageId: '3954553300',
+  attachmentPageId: '3962195316',
+  insightsPageId: '3961735728',
+  insightsTypes: ['Blog', 'Knowledge sharing', 'Reference'],
+  workingRootPageId: '3961735834',
+  pageIds: {
+    home: '3954553300',
+    mine: '3961735744',
+    review: '3961735749',
+    saved: '3961735759',
+    entitlements: '3961735763'
+  },
+  areaPageIds: {
+    'credit-approval-control': '3961735771',
+    'credit-information-management': '3961735776',
+    'credit-management-reporting': '3961735781',
+    'deal-closing': '3961735791',
+    'documentation-pledging': '3961735795',
+    'emea-credit-admin': '3961735800',
+    'loan-management': '3961735803',
+    'regional-operating-manuals': '3961735808'
+  },
+  excludePageIds: [],
+  excludeAncestorIds: [],
+  feedbackEndpoint: '',
+  bundleUrl: '/confluence/download/attachments/3962195316/wcspedia-article-discussion.js?api=v2'
+};
+</script>
+<script src="/confluence/download/attachments/3962195316/wcspedia-article-engagement.js?api=v2"></script>
+<script src="/confluence/download/attachments/3962195316/wcspedia-article-discussion-bootstrap.js?api=v2"></script>
+
