@@ -441,6 +441,19 @@
 
 @media(min-width:481px) and (max-width:760px){#wcs-back-to-top{right:max(20px,env(safe-area-inset-right))!important;bottom:max(20px,env(safe-area-inset-bottom))!important}}
 
+/* Landing FAQs: native buttons, smooth intrinsic-height panels, no requests. */
+#wcspedia .wcs-faq-item { border-bottom: 1px solid #dce5ef; }
+#wcspedia .wcs-faq-item h3 { margin: 0 !important; }
+#wcspedia .wcs-faq-item h3 button { display:flex !important; align-items:center; justify-content:space-between; gap:20px; width:100%; padding:22px 0 !important; border:0 !important; border-radius:0 !important; background:transparent !important; color:#17365e !important; font:inherit !important; font-size:18px !important; text-align:left; cursor:pointer; box-shadow:none !important; }
+#wcspedia .wcs-faq-item button:focus-visible { outline:2px solid #255be3 !important; outline-offset:4px; }
+#wcspedia .wcs-faq-item button svg { width:22px; height:22px; flex-shrink:0; transition:transform .24s ease; }
+#wcspedia .wcs-faq-item button[aria-expanded="true"] svg { transform:rotate(45deg); }
+#wcspedia .wcs-faq-answer { display:grid; grid-template-rows:0fr; visibility:hidden; opacity:0; transition:grid-template-rows .24s ease,opacity .24s ease,visibility .24s; }
+#wcspedia .wcs-faq-answer[aria-hidden="false"] { grid-template-rows:1fr; visibility:visible; opacity:1; }
+#wcspedia .wcs-faq-answer > div { min-height:0; overflow:hidden; }
+#wcspedia .wcs-faq-answer p { margin:0 !important; padding:0 32px 22px 0; line-height:1.7; color:#52677f; }
+@media (prefers-reduced-motion:reduce) { #wcspedia .wcs-faq-answer, #wcspedia .wcs-faq-item button svg { transition:none; } }
+
 /* Shared header notifications: standalone body portal, independent of page shells. */
 #wcs-notifications {
   position: fixed !important;

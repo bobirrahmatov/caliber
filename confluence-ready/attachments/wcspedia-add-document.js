@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === '090f0eb8c44e') return;
+  if (registry.addDocument && registry.addDocument.version === 'b06ac5956f6f') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -124,6 +124,13 @@
   'use strict';
   // One content-type rule for editor, native writes, imports and discovery.
   var INSIGHT_TYPES = Object.freeze(['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ']);
+  // Stored types remain valid; the UI offers four groups without rewriting history.
+  var INSIGHT_CHOICES = Object.freeze(['Guide', 'Blog', 'Training', 'Report']);
+  var CREATE_TYPES = Object.freeze(['Job aid'].concat(INSIGHT_CHOICES));
+  var TYPE_GROUPS = Object.freeze({Procedure:'Guide',Playbook:'Guide',Checklist:'Guide','Knowledge sharing':'Training',Reference:'Report',Template:'Report',FAQ:'Report'});
+  function groupType(type) { return TYPE_GROUPS[type] || type; }
+  function typeLabel(type) { return ({Guide:'Guides',Blog:'Blogs',Training:'Training',Report:'Reports','Job aid':'Job aids'})[groupType(type)] || type; }
+  function typeMembers(type) { var members = ['Job aid'].concat(INSIGHT_TYPES).filter(function (item) { return groupType(item) === groupType(type); }); return members.length ? members : [type]; }
   function isInsightType(type) { return INSIGHT_TYPES.indexOf(type) !== -1; }
   function publicationModeFor(type) { return type === 'Blog' ? 'direct-blog' : isInsightType(type) ? 'direct-insight' : null; }
   function isDirectPublication(doc) { return !!doc && isInsightType(doc.type) && doc.area === 'insights' && doc.publicationMode === publicationModeFor(doc.type); }
@@ -805,7 +812,7 @@
     normalizeImport(result);
     return result;
   }
-  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
+  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
 });
 
 ;
@@ -2071,13 +2078,19 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(!r||!Array.isArray(r.results)||r.results.length>1)fail('A duplicate working-page identity needs administrator review.','CONFLICT');
       if(!r.results.length)return null;
       var p=assertPage(r.results[0],workingId);
-      if(!p.body||!p.body.storage||typeof p.body.storage.value!=='string')p=await page(p.id,signal,workingId);
+      if(!p.body||!p.body.storage||typeof p.body.storage.value!=='string'||!Array.isArray(p.operations))p=await page(p.id,signal,workingId);
       if(p.title!==title||!marked(p,marker))fail('The working-page title is already used by other content.','CONFLICT');return p;
     }
     async function createPage(title,documentKey,kind,requestId,signal){
       var marker='wcs-document-'+documentKey,existing=await findSeed(title,marker,signal);
       if(existing){if(!marked(existing,'wcs-created-'+requestId)&&!marked(existing,'wcs-operation-'+requestId))fail('This document key already exists. Reload the workspace.','CONFLICT');return existing;}
-      return assertPage(await request('/rest/api/content','POST',{type:'page',title:title,space:{key:space},ancestors:[{id:workingId}],body:{storage:{representation:'storage',value:anchor(marker)+anchor('wcs-created-'+requestId)+anchor('wcs-kind-'+kind)+'<p>WCSpedia content is being prepared in the restricted working area.</p>'}}},signal),workingId);
+      var created=await request('/rest/api/content','POST',{type:'page',title:title,space:{key:space},ancestors:[{id:workingId}],body:{storage:{representation:'storage',value:anchor(marker)+anchor('wcs-created-'+requestId)+anchor('wcs-kind-'+kind)+'<p>WCSpedia content is being prepared in the restricted working area.</p>'}}},signal);
+      if(!created||!/^[1-9]\d{0,19}$/.test(String(created.id||'')))fail('Confluence did not confirm the created page ID. Check this same save before retrying.','UNKNOWN_COMMIT');
+      // POST does not promise expanded operations/body/ancestors. Read the
+      // actual saved page; absence in the POST is not a permission denial.
+      var confirmed=await page(String(created.id),signal,workingId);
+      if(confirmed.title!==title||!marked(confirmed,marker)||!marked(confirmed,'wcs-created-'+requestId)||!marked(confirmed,'wcs-kind-'+kind))fail('The created page identity could not be confirmed. Check this same save before retrying.','UNKNOWN_COMMIT');
+      return confirmed;
     }
     async function upload(pageId,item,signal){
       if(!item.bytes||!item.bytes.length||item.bytes.length>10000000)fail('Every attachment must be no more than 10,000,000 bytes.','ATTACHMENT_LIMIT');
@@ -2189,7 +2202,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(journal&&journal.value&&journal.value.requestId===requestId){if(journal.value.fingerprint!==fingerprint||journal.value.actorSOEID!==who.soeid)fail('This request ID was already used for another action.','CONFLICT');if(journal.value.done)return loadWithContext({catalog:ctx.catalog,signal:signal,workspaceScope:'document:'+documentKey},ctx);}
       else if(journal&&journal.value&&!journal.value.done)fail('Another operation is unfinished. Retry that original action before making a new change.','WRITE_PENDING');
       else{
-        if(!op(p,'update'))fail('Confluence does not permit updating this working page.','FORBIDDEN');
+        if(!Array.isArray(p.operations))fail('Confluence did not return editing permissions for working page '+p.id+'. Check native page access, then retry this same save.','INVALID_PERMISSIONS');
+        if(!op(p,'update'))fail('Confluence does not permit editing working page '+p.id+'. Check that page’s native Editing restrictions and your space Add page permission. A WCSpedia entitlement alone cannot grant native access.','FORBIDDEN');
         if(!creating&&command.expectedPageVersion!=null&&p.version.number!==command.expectedPageVersion)fail('The native page changed. Reload before saving.','CONFLICT');
         if(!creating&&['edit','revise','submit'].includes(command.action)&&!E.hasGrant(ctx.policy,who,'content.edit',documentKey))fail('Your WCSpedia document edit grant is missing.','FORBIDDEN');
         if(command.action==='delete'&&(!E.hasGrant(ctx.policy,who,'content.delete',documentKey)||!op(p,'delete')))fail('Your account cannot delete this document.','FORBIDDEN');
@@ -2571,7 +2585,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     var preferContentSearch = searchConfig.transport !== 'search';
     // This tab and adapter own the cache. Identity/access refreshes and writes
     // invalidate it; native Confluence permissions still apply to every read.
-    var searchCache = new Map(), searchInflight = new Map(), searchGeneration = 0, searchIdentity = null;
+    var searchCache = new Map(), searchInflight = new Map(), searchGeneration = 0, searchIdentity = null, discoverySessionChanged = false, searchIdentityAt = 0, identityCheck = null;
     function searchAbort() { var error = new Error('The search was cancelled.'); error.name = 'AbortError'; return error; }
     function clearSearchReads() {
       searchGeneration++; searchCache.clear();
@@ -2583,7 +2597,33 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var identity = entitlementHelper().identity(user);
       var fingerprint = JSON.stringify([user.type || '', user.userKey || '', user.accountId || '', identity && identity.soeid || '']);
       if (searchIdentity !== null && searchIdentity !== fingerprint) clearSearchReads();
-      searchIdentity = fingerprint;
+      searchIdentity = fingerprint; searchIdentityAt = Date.now();
+    }
+    async function verifyDiscoverySession(signal) {
+      var user = await json(await request(endpoint('/rest/api/user/current'), { signal: signal }));
+      if (!user || user.type !== 'known' || !(user.userKey || user.username || user.accountId)) {
+        clearSearchReads(); fail('Your Confluence session has expired. Sign in to Confluence, then try again.', 'AUTH_REQUIRED');
+      }
+      var previous = searchIdentity;
+      observeSearchIdentity(user);
+      discoverySessionChanged = discoverySessionChanged || previous !== null && previous !== searchIdentity;
+      if (discoverySessionChanged) {
+        fail('Your Confluence account changed. Reload this page to use the current account.', 'SESSION_CHANGED');
+      }
+    }
+    function waitForDiscoverySession(signal, force) {
+      throwIfAborted(signal);
+      if(discoverySessionChanged)fail('Your Confluence account changed. Reload this page to use the current account.', 'SESSION_CHANGED');
+      if(!force&&(searchIdentity===null||Date.now()-searchIdentityAt<60000))return Promise.resolve();
+      // Share one bounded session check across typeahead, recent cards and area
+      // queries. Cancelling one subscriber must not cancel the others.
+      if(!identityCheck)identityCheck=verifyDiscoverySession().finally(function(){identityCheck=null;});
+      var pending=identityCheck;
+      return new Promise(function(resolve,reject){
+        function cancel(){reject(searchAbort());}
+        if(signal)signal.addEventListener('abort',cancel,{once:true});
+        pending.then(function(){if(signal)signal.removeEventListener('abort',cancel);resolve();},function(error){if(signal)signal.removeEventListener('abort',cancel);reject(error);});
+      });
     }
     function settleSearchRead(entry, error, result) {
       if (entry.settled) return;
@@ -3560,6 +3600,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       ['types', 'excludeIds', 'excludeAncestorIds'].forEach(function (field) { if (Array.isArray(options[field])) options[field] = options[field].slice(); });
       if (object(options.continuation)) options.continuation = Object.assign({}, options.continuation);
       throwIfAborted(options.signal);
+      await waitForDiscoverySession(options.signal);
+      throwIfAborted(options.signal);
       var key = searchReadKey(options), cached = searchCache.get(key);
       if (cached && Date.now() - cached.at < 30000) return clone(cached.result);
       if (cached) searchCache.delete(key);
@@ -3587,7 +3629,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var requiredLabels = tree ? [] : ['wcs-document', 'wcs-status-published'];
       ['tag', 'process', 'region'].forEach(function (kind) { if (options[kind] != null && options[kind] !== '') requiredLabels.push(facetLabel(kind, options[kind])); });
       if (options.types != null && (!Array.isArray(options.types) || options.type)) fail('Choose one type or a list of types.');
-      var queryOptions = { query: options.query || '', prefixLastToken: tree, categories: options.area ? [options.area] : [], types: options.types || (options.type ? [options.type] : []), updated: options.updated || 'any', sort: options.sort || 'relevance' };
+      var queryOptions = { query: options.query || '', prefixLastToken: tree, categories: options.area ? [options.area] : [], types: options.types || (options.type ? ((root.WCSEditorContent || (typeof require === 'function' ? require('./editor-content.js') : null))?.typeMembers(options.type) || [options.type]) : []), updated: options.updated || 'any', sort: options.sort || 'relevance' };
       var exclusions = tree ? searchExclusions(options) : { pages: options.excludeIds, trees: options.excludeAncestorIds };
       var scope = { rootPageId: pageId, includeRoot: false, spaceKey: configuredSearchSpace, categoryLabelPrefix: 'wcs-area-', requiredLabels: requiredLabels, excludeIds: exclusions.pages, excludeAncestorIds: exclusions.trees };
       // Validate all user filters before network I/O. Never accept raw CQL.
@@ -3747,10 +3789,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var exclusions = searchExclusions({}, true), containers = exclusions.trees, excluded = exclusions.pages;
       function validPageID(id) { return (typeof id === 'string' || Number.isSafeInteger(id)) && /^[1-9]\d{0,19}$/.test(String(id)); }
       search.buildCQL({}, { rootPageId: pageId, spaceKey: configuredSearchSpace, excludeIds: excluded, excludeAncestorIds: containers });
+      await waitForDiscoverySession(options.signal,options.revalidateSession);
       var space = await waitForSearchSpace(options.signal);
       throwIfAborted(options.signal);
       var output = { recent: [], areas: {}, recentReady: false, complete: false }, validKeys = [];
-      function errorValue(error) { return { code: error.code || 'LOAD_ERROR', message: error.message || 'Confluence could not load this content.' }; }
+      function errorValue(error) { return { code: error.code || 'LOAD_ERROR', status: error.status, message: error.message || 'Confluence could not load this content.' }; }
       function emit() { throwIfAborted(options.signal); if (options.onUpdate) options.onUpdate(clone(output)); }
       function cancelled(error) { if (error && error.name === 'AbortError') throw error; }
       var reserved = searchExclusions({}, false).pages;
@@ -4068,7 +4111,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
                 return;
               }
             } else win.location.assign(target);
-            if (!destroyed) win.WCSNotifications?.show('Opening a new ' + type.label.toLowerCase() + ' draft.', {type: 'info'});
+            if (!destroyed) win.WCSNotifications?.show('Opening the ' + type.value.toLowerCase() + ' editor.', {type: 'info'});
           } catch (_) { state('error', 'The authoring page is unavailable.'); win.WCSNotifications?.show('The authoring page is unavailable.', {type: 'error'}); }
           finally { finishIntent(intent); }
 
@@ -4186,5 +4229,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: '090f0eb8c44e', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument };
+  registry.addDocument = { version: 'b06ac5956f6f', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
 })();

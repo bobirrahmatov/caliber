@@ -5,7 +5,7 @@
  */
 (function () {
   'use strict';
-  var revision = '090f0eb8c44e';
+  var revision = 'b06ac5956f6f';
   function placeFloating(host) {
     // Portal out of themed headers: transforms/overflow there can clip fixed controls.
     host.setAttribute('data-wcs-floating-add', '');
@@ -88,7 +88,7 @@
         if (host.wcsStopFloating) host.wcsStopFloating();
         var stopPlacement = host.wcsStopFloating = placeFloating(host);
         var handle = modules.AddDocument.mount(host, {
-          types: settings.types,
+          types: modules.Content.CREATE_TYPES.map(function (value) { return {value: value, label: modules.Content.typeLabel(value)}; }),
           createUrl: context + '/pages/viewpage.action?pageId=' + encodeURIComponent(workspacePageId) + '#/create',
           unavailableMessage: unavailable,
           accessTimeoutMs: accessTimeout,

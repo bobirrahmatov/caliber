@@ -24,7 +24,7 @@ Before use, restrict viewing of Working page **3961735834** to the authoring/rev
 
 Read **[the native setup and recovery guide](templates/NATIVE-SPACE-SETUP.md)** before rollout. It explains storage, the two-account acceptance check, migration limits and cooperative approval. Native Confluence permissions remain authoritative. Local tests do not verify your internal server.
 
-The six page pairs are Landing, My workspace, Reviewer workspace, Saved items, Entitlements and Insights. Each page fragment loads its matching logic `.js` and `HTMLPage.js`. The navbar owns the single Add document widget; live page code does not mount another. It opens the existing My workspace editor. On denied access/setup errors it stays visible but disabled, with the reason in its tooltip and the console message beginning `[WCSpedia Add document]`. The style marker is a manual marker for native document pages only. Comments appear below eligible child articles, never as a navbar button. Only Landing uses the splash.
+The six page pairs are Landing, My workspace, Reviewer workspace, Saved items, Entitlements and Insights. Each page fragment loads its matching logic `.js` and `HTMLPage.js`. The navbar owns the single Add document widget; live page code does not mount another. It opens the existing My workspace editor. On denied access/setup errors it stays visible but disabled, with the reason in its tooltip and the console message beginning `[WCSpedia Add document]`. The style marker is a manual marker for native document pages only. The comments scripts in the navbar are background helpers: they add no Load comments control. Comments load automatically near the bottom of eligible child articles, with an in-article retry if loading fails. Only Landing uses the splash.
 
 The policy filename is exactly **`entitlements.json`**, on **3962195316**. Keep its `schemaVersion`, `revision`, `records` and `audit` fields; these are data/history controls, not filename suffixes. If fields were removed, restore them from the last valid policy attachment without resetting grants or audit history. `wcspedia.entitlements.v1` is an internal native content-property key, not a filename or a second JSON to upload. Do not remove native Confluence versions or pointer records. An administrator's JSON creation grant still requires native permissions and the restricted Working page.
 
@@ -35,6 +35,30 @@ The reusable MDX template is in both `templates/` and `attachments/`. Native com
 Recording votes/views requires native Edit permission on that article. Health changes require appropriate JSON grants and native Working-page Edit/Add attachments access. JSON does not elevate native permissions. Recorded views cover successful eligible recordings, deduplicated per account for 30 minutes, with an explicit limit of 180 active accounts per document; they do not represent all Confluence traffic. Existing unmanaged pages need enrollment in the WCSpedia approval workflow for health persistence. Article comments remain independent and use native comment permissions.
 
 The latest interface update fixes Entitlements footer controls/code formatting, Insights search/Topics, and action spinners. Insights no longer offers analytics export. Workspace reads now tolerate missing draft-privacy setup while draft writes remain disabled; configure **Working 3961735834**, not the workspace interface pages. See `templates/NATIVE-SPACE-SETUP.md`.
+
+## Simplified content choices
+
+Insights has four groups: Guides, Blogs, Training and Reports. The floating creation menu and editor offer those four plus Job aids. Only Job aids require a business area, reviewer and manager. Topics remain optional; Processes and Regions are under More organisation options. My Workspace uses the shared floating button instead of a second creation button.
+
+Stored types and history are preserved. Procedures, playbooks and checklists appear under Guides; knowledge sharing under Training; reference articles, templates and existing FAQ articles under Reports. The five general help FAQs appear below the latest articles on the landing page. New MDX uses Job aid, Guide, Blog, Training, or Report.
+
+## Returning after idle
+
+The landing page and Saved items refresh their visible list when the tab becomes visible/focused again after 30 seconds, or Saved items returns from the browser back-forward cache. Events share one in-flight refresh; there is no polling, automatic write, full-page reload or non-landing splash. Saved rows are displayed independently of content-health completion, and Saved-only refreshes do not reload health.
+
+Previously loaded results remain visible with a refresh warning after a network timeout or temporary server failure. Authentication, permission, changed-account and malformed-response failures clear the affected results. A successful empty response remains an empty result; failures are never treated as an empty success. Landing search rechecks a previously established session after 60 seconds, sharing the check across simultaneous searches. Signing in again as the same account permits retry; a changed account requires reloading the page. These checks cannot extend the internal Confluence/SSO session.
+
+Saved items continue to use native personal favourites, scoped to this space and the configured WCSpedia descendants. No live JSON file needs changing for this update.
+
+## Editor permission correction and file-drop protection
+
+Keep the current editor. After creating a native page, WCSpedia fetches that page with its expanded edit permissions before continuing. A minimal create response no longer falsely denies editing; actual native permission failures still stop the save. Blogs, Guides, Training and Reports publish under Insights without reviewer/manager approval. Job aids retain approval. Upload the current page JS pairs and matching HTML from this package. Do not replace live JSON with starter files.
+
+Upload `attachments/wcspedia-file-drop-guard.js` to the same attachments page, **3962195316**, with the other runtime files. Replace the existing WCSpedia fragment inside your **navBar HTML macro** with `html/wcspedia-navbar.html`; keep your navigation and fonts. Continue using `{include:wcspedia:navBar}` in space Look and Feel. This adds one small helper at the start of the fragment, without new CSS, an overlay, requests or polling.
+
+The helper cancels file drag/drop gestures on WCSpedia pages that load this header, including its custom editor. Use **Add files**, **Upload cover image**, or **Insert image** to select files deliberately. Text/link dragging, paste and file-picker uploads are unchanged. It checks native space metadata or the page URL and does not activate on another space or an unidentified page. To turn it off, set `enabled: false` in `WCS_FILE_DROP_CONFIG` in the navBar macro.
+
+CSS in Look and Feel cannot reliably disable JavaScript upload handlers. This helper is a browser interaction guard, not a native permission rule. A native editor/attachment screen that does not load navBar, a separate iframe, or a handler that already ran earlier on window capture is outside its protection. With space-only access we cannot guarantee a site-wide ban. Verify a file drag over a native child article and the custom editor on the internal instance; there should be no upload request or new attachment. Explicit uploads should still work. The built-in Confluence editor must be checked separately for whether it includes the header.
 
 ## Configured page IDs
 

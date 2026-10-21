@@ -4,6 +4,9 @@
 
 Use one **Insights parent page inside the existing WCSpedia space**, page **3961735728** beneath landing page **3954553300**. Every supported type except **Job aid** publishes here directly. Job aids alone require a business area, reviewer and approver and publish beneath their business area after approval.
 
+
+The visible categories are **Guides, Blogs, Training and Reports**. The creation menu and editor offer those four plus Job aids. Guides include existing Procedure, Playbook and Checklist articles; Training includes Knowledge sharing; Reports includes Reference, Template and existing FAQ articles. Legacy stored types remain readable and searchable without rewriting history. New MDX uses `Guide`, `Blog`, `Training`, `Report`, or `Job aid`. Five expandable help FAQs live below the landing page’s latest articles; FAQ is no longer a creation option.
+
 The editor hides business-area, reviewer, approver and governance fields for Insights content. Topic tags and the comments setting remain available. Existing pages keep their history and are not moved in bulk. An authorized editor saving a legacy non-Job-aid document adopts direct publication to Insights; the routing change is recorded in its audit history.
 
 The listing follows the visual hierarchy of [Citi All Insights](https://www.citigroup.com/global/insights/all): a plain editorial heading, underlined type filters, topic/search controls and a three-column article grid. It inherits the existing Confluence font/header, uses real article cover attachments from a matching published page version when available and falls back to readable text cards when no usable cover exists. It introduces no external image service or second site header.
@@ -87,3 +90,15 @@ Business-area browsing includes both the area's physical descendants (including 
 Use **Download analytics JSON** on Insights as an authorized administrator when a report is needed. The explicit operation gathers readable document metadata and comment counts into one local `wcspedia-analytics.json` for manual analysis, with progress and cancellation. It neither uploads the report nor schedules recurring collection. See [manual analytics](MANUAL-ANALYTICS.md) for coverage, limits and nullable unavailable helpfulness totals.
 
 Before production rollout, verify the real parent ancestry, a Blog publication with caller permissions, enabled/disabled comments, one nested result from each collection, and a completed analytics download in the internal Confluence environment. Local automated checks cannot prove native server permissions or deployment of the trusted service.
+
+## Creation permissions and native editor links
+
+The custom editor publishes blogs directly to Insights (3961735728), without a reviewer or manager approval. It currently keeps a private Working record for save recovery, media and editor history. That storage record does not introduce an approval step, but the signed-in author needs native permission to edit it. The older standalone blog HTML also used `POST /rest/api/content`; its simpler template-copy flow did not preserve this editor/recovery history.
+
+After creating a native page, WCSpedia now reads that exact ID with `operations`, `body.storage`, `space`, `ancestors` and `version` expanded. Confluence's default POST response does not include expanded operations; missing fields on that response must not be interpreted as an edit denial. The expanded GET remains authoritative. A genuine denial reports the affected page ID; a missing operations expansion is reported separately. Exact-request recovery reuses the existing seed instead of creating a second one.
+
+Native editor URLs need separate `spaceKey` and `fromPageId` query parameters (`&`, not `@`). For Insights, the parent ID is 3961735728; 3961735744 is the My Workspace interface. Prefer Confluence's native Create action from the Insights parent when creating outside WCSpedia. Do not store an `atl_token` from a copied URL in config, attachments or JSON. For a custom native-action link that requires it, read the current host token at click time with `AJS.Meta.get("atl-token")`, and build the query using `URLSearchParams`. A token is XSRF protection, not an edit permission or a fixed page identifier.
+
+References: [Confluence REST content creation and expansions](https://docs.atlassian.com/ConfluenceServer/rest/8.8.0/#api/content-createContent) and [Atlassian XSRF tokens](https://developer.atlassian.com/server/confluence/enable-xsrf-protection-for-your-app/).
+
+A console 404 on a missing content property can be an expected first-use read; the complete request URL is needed to distinguish it from a failed resource. The supplied `batch.js` MutationObserver stack points into host scripts, not this workflow's permission check. Do not suppress host errors or treat a CSS deprecation warning as proof that a page save failed.

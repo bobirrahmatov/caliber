@@ -1,4 +1,12 @@
 <!-- Install ONCE in the right-hand action area of the EXISTING navBar. Replace old WCSpedia header fragments; preserve your navigation and fonts. -->
+<!-- WCSpedia component: wcspedia-file-drop-guard-header.html -->
+<!-- Included once by wcspedia-navbar.html. No CSS or Confluence admin plugin needed.
+File selection remains available. Only pages loading this header are covered. -->
+<script>
+window.WCS_FILE_DROP_CONFIG = {enabled: true, spaceKey: "wcspedia"};
+</script>
+<script src="/confluence/download/attachments/3962195316/wcspedia-file-drop-guard.js?api=v2"></script>
+
 <!-- WCSpedia component: wcspedia-global-styles.html -->
 <!-- Reference only: this stylesheet is loaded ONCE in your existing global Look and Feel/header.
 If the same WCSpedia component CSS is already loaded globally, do not add a second link.
@@ -71,7 +79,7 @@ window.WCS_ADD_DOCUMENT_CONFIG = {
   workflowEndpoint: "",
   workspaceEndpoint: "",
   accessTimeoutMs: 12000,
-  types: ['Job aid', 'Knowledge sharing', 'Blog', 'Training', 'Reference', 'Report', 'Guide', 'Playbook', 'Checklist', 'Template', 'FAQ']
+  types: ['Job aid', 'Guide', 'Blog', 'Training', 'Report']
 };
 </script>
 <script src="/confluence/download/attachments/3962195316/wcspedia-add-document.js?api=v2" onerror="window.WCSAddDocumentUnavailable('Could not load wcspedia-add-document.js. Check the attachment page ID, filename and access.');"></script>
@@ -87,7 +95,8 @@ The script runs only on explicitly marked native child document views, not nativ
 <script src="/confluence/download/attachments/3962195316/wcspedia-page-style-flags.js?api=v2"></script>
 
 <!-- WCSpedia component: wcspedia-article-discussion-header.html -->
-<!-- Paste ONCE in the existing shared header HTML macro. Adds no header or font.
+<!-- Background helper only: no Load comments button or other navbar control.
+     Paste ONCE in the existing shared header HTML macro. Adds no header or font.
      Requires this package's global wcspedia-style.css. Comments use native REST.
      Native JSON engagement uses the signed-in session and page permissions. -->
 <script>

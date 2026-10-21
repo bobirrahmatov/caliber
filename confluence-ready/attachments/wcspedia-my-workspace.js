@@ -528,7 +528,7 @@
       const personId=review?(event?.actorId||d.authorId):d.ownerId,updatedBy=event?.actorId&&(options.personName?options.personName(event.actorId):event.actorId);
       const actions=options.actionsMarkup?options.actionsMarkup(row):(href?'<a class="button secondary compact" href="'+esc(href)+'">'+(review?'Review':'Open')+'<span class="sr-only"> '+esc(v.title)+'</span></a>':'');
       return {id:d.id,className:review?'workspace-review-row':'workspace-document-row',cells:[
-        Table.html('<span class="wcs-data-table-kicker">'+esc(d.type)+' · '+esc(d.reference)+'</span>'+title+'<p class="wcs-data-table-description">'+esc(review?v.changeSummary:v.summary)+'</p><span class="wcs-data-table-secondary">'+esc(options.areaName?options.areaName(d.area):d.area)+'</span>'),
+        Table.html('<span class="wcs-data-table-kicker">'+esc(options.typeLabel?options.typeLabel(d.type):d.type)+' · '+esc(d.reference)+'</span>'+title+'<p class="wcs-data-table-description">'+esc(review?v.changeSummary:v.summary)+'</p><span class="wcs-data-table-secondary">'+esc(options.areaName?options.areaName(d.area):d.area)+'</span>'),
         Table.html('<div class="wcs-status-group">'+(options.statusMarkup?options.statusMarkup(v.status):esc(v.status))+(options.healthMarkup?options.healthMarkup(d):'')+'</div><span class="wcs-data-table-secondary">Version '+esc(v.version)+' · revision '+esc(v.revision)+'</span>'),
         options.personName?options.personName(personId):personId,
         Table.html(esc(date(timestamp))+(!review&&updatedBy?'<span class="wcs-data-table-secondary">Updated by '+esc(updatedBy)+'</span>':'')),
@@ -1072,6 +1072,13 @@
   'use strict';
   // One content-type rule for editor, native writes, imports and discovery.
   var INSIGHT_TYPES = Object.freeze(['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ']);
+  // Stored types remain valid; the UI offers four groups without rewriting history.
+  var INSIGHT_CHOICES = Object.freeze(['Guide', 'Blog', 'Training', 'Report']);
+  var CREATE_TYPES = Object.freeze(['Job aid'].concat(INSIGHT_CHOICES));
+  var TYPE_GROUPS = Object.freeze({Procedure:'Guide',Playbook:'Guide',Checklist:'Guide','Knowledge sharing':'Training',Reference:'Report',Template:'Report',FAQ:'Report'});
+  function groupType(type) { return TYPE_GROUPS[type] || type; }
+  function typeLabel(type) { return ({Guide:'Guides',Blog:'Blogs',Training:'Training',Report:'Reports','Job aid':'Job aids'})[groupType(type)] || type; }
+  function typeMembers(type) { var members = ['Job aid'].concat(INSIGHT_TYPES).filter(function (item) { return groupType(item) === groupType(type); }); return members.length ? members : [type]; }
   function isInsightType(type) { return INSIGHT_TYPES.indexOf(type) !== -1; }
   function publicationModeFor(type) { return type === 'Blog' ? 'direct-blog' : isInsightType(type) ? 'direct-insight' : null; }
   function isDirectPublication(doc) { return !!doc && isInsightType(doc.type) && doc.area === 'insights' && doc.publicationMode === publicationModeFor(doc.type); }
@@ -1753,7 +1760,7 @@
     normalizeImport(result);
     return result;
   }
-  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
+  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
 });
 
 ;
@@ -3061,10 +3068,10 @@
 /* Discovery over version snapshots. UI visibility is a demo model, not server authorization. */
 (function (root, factory) {
   'use strict';
-  var api = factory(typeof module === 'object' && module.exports ? require('./document-metrics.js') : root.WCSDocumentMetrics);
+  var api = factory(typeof module === 'object' && module.exports ? require('./document-metrics.js') : root.WCSDocumentMetrics, typeof module === 'object' && module.exports ? require('./editor-content.js') : root.WCSEditorContent);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.WCSDiscovery = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (metrics) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (metrics, content) {
   'use strict';
 
   var titleCollator = new Intl.Collator('en', { sensitivity: 'base' });
@@ -3114,7 +3121,7 @@
     var readingSort = sort === 'shortest' || sort === 'longest';
     if (readingSort && (!metrics || typeof metrics.estimate !== 'function')) throw new TypeError('Document metrics are required to sort by reading time.');
     var rows = (Array.isArray(documents) ? documents : []).map(function (doc, index) {
-      if (!doc || doc.deletedAt || (options.area && doc.area !== options.area) || (options.type && doc.type !== options.type)) return null;
+      if (!doc || doc.deletedAt || (options.area && doc.area !== options.area) || (options.type && content.groupType(doc.type) !== content.groupType(options.type))) return null;
       if (view === 'mine' && doc.authorId !== options.actorId && doc.ownerId !== options.actorId) return null;
       var version = view === 'published' ? workflow.publishedVersion(doc) : workflow.currentVersion(doc);
       if (!version) return null;
@@ -4201,13 +4208,19 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(!r||!Array.isArray(r.results)||r.results.length>1)fail('A duplicate working-page identity needs administrator review.','CONFLICT');
       if(!r.results.length)return null;
       var p=assertPage(r.results[0],workingId);
-      if(!p.body||!p.body.storage||typeof p.body.storage.value!=='string')p=await page(p.id,signal,workingId);
+      if(!p.body||!p.body.storage||typeof p.body.storage.value!=='string'||!Array.isArray(p.operations))p=await page(p.id,signal,workingId);
       if(p.title!==title||!marked(p,marker))fail('The working-page title is already used by other content.','CONFLICT');return p;
     }
     async function createPage(title,documentKey,kind,requestId,signal){
       var marker='wcs-document-'+documentKey,existing=await findSeed(title,marker,signal);
       if(existing){if(!marked(existing,'wcs-created-'+requestId)&&!marked(existing,'wcs-operation-'+requestId))fail('This document key already exists. Reload the workspace.','CONFLICT');return existing;}
-      return assertPage(await request('/rest/api/content','POST',{type:'page',title:title,space:{key:space},ancestors:[{id:workingId}],body:{storage:{representation:'storage',value:anchor(marker)+anchor('wcs-created-'+requestId)+anchor('wcs-kind-'+kind)+'<p>WCSpedia content is being prepared in the restricted working area.</p>'}}},signal),workingId);
+      var created=await request('/rest/api/content','POST',{type:'page',title:title,space:{key:space},ancestors:[{id:workingId}],body:{storage:{representation:'storage',value:anchor(marker)+anchor('wcs-created-'+requestId)+anchor('wcs-kind-'+kind)+'<p>WCSpedia content is being prepared in the restricted working area.</p>'}}},signal);
+      if(!created||!/^[1-9]\d{0,19}$/.test(String(created.id||'')))fail('Confluence did not confirm the created page ID. Check this same save before retrying.','UNKNOWN_COMMIT');
+      // POST does not promise expanded operations/body/ancestors. Read the
+      // actual saved page; absence in the POST is not a permission denial.
+      var confirmed=await page(String(created.id),signal,workingId);
+      if(confirmed.title!==title||!marked(confirmed,marker)||!marked(confirmed,'wcs-created-'+requestId)||!marked(confirmed,'wcs-kind-'+kind))fail('The created page identity could not be confirmed. Check this same save before retrying.','UNKNOWN_COMMIT');
+      return confirmed;
     }
     async function upload(pageId,item,signal){
       if(!item.bytes||!item.bytes.length||item.bytes.length>10000000)fail('Every attachment must be no more than 10,000,000 bytes.','ATTACHMENT_LIMIT');
@@ -4319,7 +4332,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(journal&&journal.value&&journal.value.requestId===requestId){if(journal.value.fingerprint!==fingerprint||journal.value.actorSOEID!==who.soeid)fail('This request ID was already used for another action.','CONFLICT');if(journal.value.done)return loadWithContext({catalog:ctx.catalog,signal:signal,workspaceScope:'document:'+documentKey},ctx);}
       else if(journal&&journal.value&&!journal.value.done)fail('Another operation is unfinished. Retry that original action before making a new change.','WRITE_PENDING');
       else{
-        if(!op(p,'update'))fail('Confluence does not permit updating this working page.','FORBIDDEN');
+        if(!Array.isArray(p.operations))fail('Confluence did not return editing permissions for working page '+p.id+'. Check native page access, then retry this same save.','INVALID_PERMISSIONS');
+        if(!op(p,'update'))fail('Confluence does not permit editing working page '+p.id+'. Check that page’s native Editing restrictions and your space Add page permission. A WCSpedia entitlement alone cannot grant native access.','FORBIDDEN');
         if(!creating&&command.expectedPageVersion!=null&&p.version.number!==command.expectedPageVersion)fail('The native page changed. Reload before saving.','CONFLICT');
         if(!creating&&['edit','revise','submit'].includes(command.action)&&!E.hasGrant(ctx.policy,who,'content.edit',documentKey))fail('Your WCSpedia document edit grant is missing.','FORBIDDEN');
         if(command.action==='delete'&&(!E.hasGrant(ctx.policy,who,'content.delete',documentKey)||!op(p,'delete')))fail('Your account cannot delete this document.','FORBIDDEN');
@@ -4677,7 +4691,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       let identity = '', revision = 0, entries = [], nativeDocs = new Map(), queue = Promise.resolve();
       function serial(fn) { const pending = queue.catch(() => {}).then(fn); queue = pending; return pending; }
       async function session(signal) {
-        abort(signal); const user = await db.user(); abort(signal);
+        abort(signal); const user = await db.user({signal}); abort(signal);
         const id = user?.userKey || user?.username;
         if (!id || ['anonymous','unknown'].includes(user.type)) throw problem('BOOKMARKS_IDENTITY', 'Sign in to Confluence to use Saved items.');
         if (identity && identity !== id) throw problem('BOOKMARKS_IDENTITY', 'Your Confluence session changed. Reload Saved items.');
@@ -4719,7 +4733,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         return labels.some(l=>l.prefix==='my'&&l.name==='favourite');
       }
       function load(input) { return serial(async()=>{
-        const signal=input?.signal; await session(signal); await db.page(rootId,'space'); abort(signal);
+        const signal=input?.signal; await session(signal); await db.page(rootId,'space',{signal}); abort(signal);
         // Confluence restricts favourite=currentUser() to the authenticated user.
         const cql='type = page AND space = '+JSON.stringify(spaceKey)+' AND ancestor = '+rootId+' AND favourite = currentUser() ORDER BY title ASC';
         const found=[], fresh=new Map(), catalogByPage=new Map();
@@ -4741,6 +4755,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           if(next!==null&&next>=1000)throw problem('BOOKMARKS_LIMIT','More than 1,000 saved pages need Confluence’s native Saved for later view. No saved items were changed.');
           start=next;
         }while(start!==null);
+        // Re-check an empty result: an expired login must not erase the library.
+        if(!found.length)await session(signal);
         abort(signal);nativeDocs=fresh;entries=found;revision++;return snapshot();
       }); }
       function set(id,saved,input) { return serial(async()=>{
@@ -5169,7 +5185,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     var preferContentSearch = searchConfig.transport !== 'search';
     // This tab and adapter own the cache. Identity/access refreshes and writes
     // invalidate it; native Confluence permissions still apply to every read.
-    var searchCache = new Map(), searchInflight = new Map(), searchGeneration = 0, searchIdentity = null;
+    var searchCache = new Map(), searchInflight = new Map(), searchGeneration = 0, searchIdentity = null, discoverySessionChanged = false, searchIdentityAt = 0, identityCheck = null;
     function searchAbort() { var error = new Error('The search was cancelled.'); error.name = 'AbortError'; return error; }
     function clearSearchReads() {
       searchGeneration++; searchCache.clear();
@@ -5181,7 +5197,33 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var identity = entitlementHelper().identity(user);
       var fingerprint = JSON.stringify([user.type || '', user.userKey || '', user.accountId || '', identity && identity.soeid || '']);
       if (searchIdentity !== null && searchIdentity !== fingerprint) clearSearchReads();
-      searchIdentity = fingerprint;
+      searchIdentity = fingerprint; searchIdentityAt = Date.now();
+    }
+    async function verifyDiscoverySession(signal) {
+      var user = await json(await request(endpoint('/rest/api/user/current'), { signal: signal }));
+      if (!user || user.type !== 'known' || !(user.userKey || user.username || user.accountId)) {
+        clearSearchReads(); fail('Your Confluence session has expired. Sign in to Confluence, then try again.', 'AUTH_REQUIRED');
+      }
+      var previous = searchIdentity;
+      observeSearchIdentity(user);
+      discoverySessionChanged = discoverySessionChanged || previous !== null && previous !== searchIdentity;
+      if (discoverySessionChanged) {
+        fail('Your Confluence account changed. Reload this page to use the current account.', 'SESSION_CHANGED');
+      }
+    }
+    function waitForDiscoverySession(signal, force) {
+      throwIfAborted(signal);
+      if(discoverySessionChanged)fail('Your Confluence account changed. Reload this page to use the current account.', 'SESSION_CHANGED');
+      if(!force&&(searchIdentity===null||Date.now()-searchIdentityAt<60000))return Promise.resolve();
+      // Share one bounded session check across typeahead, recent cards and area
+      // queries. Cancelling one subscriber must not cancel the others.
+      if(!identityCheck)identityCheck=verifyDiscoverySession().finally(function(){identityCheck=null;});
+      var pending=identityCheck;
+      return new Promise(function(resolve,reject){
+        function cancel(){reject(searchAbort());}
+        if(signal)signal.addEventListener('abort',cancel,{once:true});
+        pending.then(function(){if(signal)signal.removeEventListener('abort',cancel);resolve();},function(error){if(signal)signal.removeEventListener('abort',cancel);reject(error);});
+      });
     }
     function settleSearchRead(entry, error, result) {
       if (entry.settled) return;
@@ -6158,6 +6200,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       ['types', 'excludeIds', 'excludeAncestorIds'].forEach(function (field) { if (Array.isArray(options[field])) options[field] = options[field].slice(); });
       if (object(options.continuation)) options.continuation = Object.assign({}, options.continuation);
       throwIfAborted(options.signal);
+      await waitForDiscoverySession(options.signal);
+      throwIfAborted(options.signal);
       var key = searchReadKey(options), cached = searchCache.get(key);
       if (cached && Date.now() - cached.at < 30000) return clone(cached.result);
       if (cached) searchCache.delete(key);
@@ -6185,7 +6229,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var requiredLabels = tree ? [] : ['wcs-document', 'wcs-status-published'];
       ['tag', 'process', 'region'].forEach(function (kind) { if (options[kind] != null && options[kind] !== '') requiredLabels.push(facetLabel(kind, options[kind])); });
       if (options.types != null && (!Array.isArray(options.types) || options.type)) fail('Choose one type or a list of types.');
-      var queryOptions = { query: options.query || '', prefixLastToken: tree, categories: options.area ? [options.area] : [], types: options.types || (options.type ? [options.type] : []), updated: options.updated || 'any', sort: options.sort || 'relevance' };
+      var queryOptions = { query: options.query || '', prefixLastToken: tree, categories: options.area ? [options.area] : [], types: options.types || (options.type ? ((root.WCSEditorContent || (typeof require === 'function' ? require('./editor-content.js') : null))?.typeMembers(options.type) || [options.type]) : []), updated: options.updated || 'any', sort: options.sort || 'relevance' };
       var exclusions = tree ? searchExclusions(options) : { pages: options.excludeIds, trees: options.excludeAncestorIds };
       var scope = { rootPageId: pageId, includeRoot: false, spaceKey: configuredSearchSpace, categoryLabelPrefix: 'wcs-area-', requiredLabels: requiredLabels, excludeIds: exclusions.pages, excludeAncestorIds: exclusions.trees };
       // Validate all user filters before network I/O. Never accept raw CQL.
@@ -6345,10 +6389,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var exclusions = searchExclusions({}, true), containers = exclusions.trees, excluded = exclusions.pages;
       function validPageID(id) { return (typeof id === 'string' || Number.isSafeInteger(id)) && /^[1-9]\d{0,19}$/.test(String(id)); }
       search.buildCQL({}, { rootPageId: pageId, spaceKey: configuredSearchSpace, excludeIds: excluded, excludeAncestorIds: containers });
+      await waitForDiscoverySession(options.signal,options.revalidateSession);
       var space = await waitForSearchSpace(options.signal);
       throwIfAborted(options.signal);
       var output = { recent: [], areas: {}, recentReady: false, complete: false }, validKeys = [];
-      function errorValue(error) { return { code: error.code || 'LOAD_ERROR', message: error.message || 'Confluence could not load this content.' }; }
+      function errorValue(error) { return { code: error.code || 'LOAD_ERROR', status: error.status, message: error.message || 'Confluence could not load this content.' }; }
       function emit() { throwIfAborted(options.signal); if (options.onUpdate) options.onUpdate(clone(output)); }
       function cancelled(error) { if (error && error.name === 'AbortError') throw error; }
       var reserved = searchExclusions({}, false).pages;
@@ -6561,10 +6606,10 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     const reviewers=options.people.filter(p=>p.id!==options.actor.id&&p.role!=='Reader'),managers=reviewers.filter(p=>p.role==='Manager');
     const tool=(command,label,text)=>'<button type="button" data-format="'+command+'" aria-label="'+label+'" data-tooltip="'+label+'">'+(symbols[text]?svg(text):text)+'</button>';
     function editorTypes(){
-      const types=[...new Set([...(options.types||[]),...(doc?.type?[doc.type]:[])])];
-      return types.map(type=>({id:type,name:type}));
+      const types=[...new Set([...content.CREATE_TYPES.filter(type=>(options.types||[]).includes(type)),...(doc?.type?[doc.type]:[])])];
+      return types.map(type=>({id:type,name:content.typeLabel(type)+(content.CREATE_TYPES.includes(type)?'':' · existing '+type)}));
     }
-    function initialType(){const types=editorTypes().map(type=>type.id),requested=doc?.type||options.type||'Job aid';return types.includes(requested)?requested:types.includes('Job aid')?'Job aid':types[0]||'';}
+    function initialType(){const types=editorTypes().map(type=>type.id),requested=doc?.type||content.groupType(options.type)||'Job aid';return types.includes(requested)?requested:types.includes('Job aid')?'Job aid':types[0]||'';}
     function commentsSetting(){return '<section id="editor-comments-settings"'+(content.isInsightType(initialType())?'':' hidden')+'>'+select('editor-comments-enabled','Article comments',[{id:'true',name:'Enabled'},{id:'false',name:'Disabled'}],String(initial.commentsEnabled))+'<p class="editor-field-hint">Published changes control the WCSpedia discussion. Disabling keeps existing comments in Confluence; its native permissions remain unchanged.</p></section>';}
     function directInsight(){return content.isInsightType(doc?.type||(host?find('#editor-type').value:initialType()));}
     function updateCommentsSetting(){
@@ -6620,7 +6665,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       find('#editor-slug-help').textContent=slugMode==='auto'?'Generated from the title as you type. You can customize it if needed.':slugMode==='saved'?'The saved slug stays unchanged when you update the title.':'Use lowercase letters, numbers, and hyphens. Use title restores automatic generation.';
     }
     function html(){
-      return '<section class="authoring-page discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a><span>/</span><a href="#/results?view=mine">My documents</a><span>/</span><span>'+(doc?'Edit document':'Create content')+'</span></nav><form id="editor-form" class="authoring-surface" novalidate><div class="editor-topbar"><div><h1 class="editor-heading">'+(doc?'Edit document':'Create something worth sharing.')+'</h1><span id="editor-save-status" class="editor-save-status" role="status">'+(doc?(options.editingPublished?'Editing published version '+v.version+' · saved changes create a new draft':'Version '+v.version+' · revision '+v.revision):'New draft')+'</span></div><div class="editor-actions"><button type="button" class="editor-cancel editor-focus-exit" data-editor-action="focus-exit" hidden>Exit expanded view</button><button type="button" class="editor-cancel" data-editor-action="cancel">Cancel</button><button type="button" class="button secondary" data-editor-action="preview">Preview</button><button type="submit" class="button" id="editor-save-button">Save draft <span aria-hidden="true">→</span></button></div></div><div id="editor-error" class="form-error" role="alert" hidden></div><div class="editor-writing"><div class="editor-body"><div class="editor-main">'+input('editor-title','Title',initial.title,'required maxlength="160" placeholder="Give your content a clear, useful title"')+'<div class="editor-content-label"><label id="body-label" for="editor-source">Content</label><div class="editor-mode-actions"><button type="button" data-editor-action="paste-markdown" class="source-toggle">Paste MDX / Markdown</button><button type="button" data-editor-action="copy-markdown" class="source-toggle">Copy Markdown</button><button type="button" data-editor-action="source" class="source-toggle" aria-pressed="false">Markdown</button></div></div><div class="rich-editor"><div class="editor-toolbar" role="toolbar" aria-label="Text formatting"><select aria-label="Paragraph style" id="paragraph-style"><option value="p">Normal text</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option><option value="h4">Heading 4</option></select>'+tool('bold','Bold · Ctrl / ⌘ B','<b>B</b>')+tool('italic','Italic · Ctrl / ⌘ I','<i>I</i>')+tool('underline','Underline · Ctrl / ⌘ U','<u>U</u>')+tool('strikeThrough','Strikethrough','<s>S</s>')+'<span class="toolbar-divider"></span>'+tool('link','Insert link','link')+tool('quote','Block quote','❝')+tool('code','Inline code','&lt;/&gt;')+tool('image','Insert image','image')+tool('video','Insert training video','video')+'<span class="toolbar-break" aria-hidden="true"></span>'+tool('insertUnorderedList','Bullet list','☷')+tool('insertOrderedList','Numbered list','1.')+tool('codeblock','Code block','codeblock')+tool('table','Insert table','table')+tool('divider','Horizontal divider','divider')+tool('clear','Clear formatting','clear')+tool('embed','Embed a resource','embed')+'<span class="toolbar-divider"></span>'+tool('undo','Undo','undo')+tool('redo','Redo','redo')+tool('fullscreen','Expand editor','fullscreen')+'</div><div class="editor-table-tools" hidden><span>Table</span><button type="button" data-table="row">Add row</button><button type="button" data-table="column">Add column</button><button type="button" data-table="remove">Remove table</button></div><div id="editor-rich" class="rich-body document-body" contenteditable="true" role="textbox" aria-label="Document content" aria-multiline="true" spellcheck="true" data-placeholder="Write here, paste Markdown, or drop an image into your content…">'+renderBody(initial.bodyMarkdown)+'</div><textarea id="editor-source" aria-label="Markdown content" class="markdown-source" hidden>'+escape(initial.bodyMarkdown)+'</textarea><div class="editor-body-bottom"><span>Paste Markdown, images, or formatted text.</span><span id="editor-word-count"></span></div></div>'+textarea('editor-highlights','Key highlights <small>Optional · one per line, up to 5</small>',initial.highlights.join('\n'),'rows="3" placeholder="What should a reader take away?"')+'<section class="editor-attachments" aria-label="Supporting attachments"><div class="editor-section-title"><div><h2>Attachments</h2><p>Add supporting documents, templates, or training materials.</p></div><label class="button secondary attachment-upload" for="editor-attachment-file">'+svg('attachment')+'Add files<input id="editor-attachment-file" type="file" multiple accept=".pdf,.txt,.md,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.gif" class="sr-only"></label></div><div id="editor-attachment-list"></div><p class="editor-field-hint">PDF, Office, text, Markdown, CSV, and images · up to 5 MB per file.</p></section>'+governanceSection() +textarea('editor-comment','Change summary',doc?'':'Initial draft.','required maxlength="2000" rows="2" placeholder="Explain what you created or changed for the audit trail."')+'<div class="editor-help">'+options.icon('shield')+'<p>Save your draft, then submit it for review. Your assigned manager approves the reviewed revision before it is published.</p></div></div><aside class="editor-sidebar" aria-label="Document settings"><h2>Document settings</h2>'+select('editor-type','Content type',editorTypes(),initialType(),!!doc)+commentsSetting()+'<p id="editor-insights-destination" hidden><strong>Destination: Insights</strong><br>Published inside WCSpedia.</p>'+select('editor-area','Business area',options.areas.map(a=>({id:a.id,name:a.title})),doc?.area||options.area||options.areas[0]?.id,!!doc)+slugField()+textarea('editor-summary','Excerpt',initial.summary,'required maxlength="1000" rows="4" placeholder="A short summary for search results and the article introduction."')+'<div id="editor-source-metadata">'+sourceMetadataSummary()+'</div><section class="editor-tag-settings"><h2>Make it discoverable</h2>'+tagField('tags','Topics',initial.tags,'For example: collateral, controls')+tagField('processes','Processes',initial.processes,'For example: onboarding, annual review')+tagField('regions','Regions / markets',initial.regions,'For example: Global, EMEA, United Kingdom')+'<p class="editor-field-hint">Press Enter or comma to add a tag. Matching topics, processes, and markets connect related content.</p></section><div class="editor-cover-settings"><span class="editor-settings-label">Cover image <small>Optional</small></span><div id="editor-cover-preview"></div><label class="cover-upload" for="editor-cover-file">'+options.icon('plus')+'<strong>Upload cover image</strong><span>PNG, JPG, WebP, or GIF · up to 1 MB</span><input type="file" id="editor-cover-file" accept="image/png,image/jpeg,image/webp,image/gif" class="sr-only"></label><details class="cover-url"><summary>Use an image link</summary>'+input('editor-cover-url','Image URL',cover&&!cover.src.startsWith('data:')?cover.src:'','placeholder="https://… or /confluence/download/…"')+'<button type="button" class="link" data-editor-action="cover-url">Apply image</button></details>'+input('editor-cover-alt','Image description',cover?.alt||'','maxlength="300" placeholder="Describe the image for readers"')+input('editor-cover-caption','Caption',cover?.caption||'','maxlength="500" placeholder="Optional caption or source"')+'</div><div class="editor-ownership"><h2>Ownership & review</h2><div class="editor-owner"><span class="avatar">'+escape((options.people.find(p=>p.id===doc?.ownerId)||options.actor).initials)+'</span><div><strong>'+escape((options.people.find(p=>p.id===doc?.ownerId)||options.actor).name)+'</strong><span>Document owner</span></div></div>'+select('editor-reviewer','Reviewer',reviewers,doc?.reviewerId||managers[0]?.id||reviewers[0]?.id,!!doc)+select('editor-approver','Manager approver',managers,doc?.approverId||managers[0]?.id,!!doc)+'<div class="editor-approval-note">Approval date is recorded automatically when the manager approves this revision.</div></div></aside></div></div><div id="editor-reader" hidden></div></form></section>';
+      return '<section class="authoring-page discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a><span>/</span><a href="#/results?view=mine">My documents</a><span>/</span><span>'+(doc?'Edit document':'Create content')+'</span></nav><form id="editor-form" class="authoring-surface" novalidate><div class="editor-topbar"><div><h1 class="editor-heading">'+(doc?'Edit document':'Create something worth sharing.')+'</h1><span id="editor-save-status" class="editor-save-status" role="status">'+(doc?(options.editingPublished?'Editing published version '+v.version+' · saved changes create a new draft':'Version '+v.version+' · revision '+v.revision):'New draft')+'</span></div><div class="editor-actions"><button type="button" class="editor-cancel editor-focus-exit" data-editor-action="focus-exit" hidden>Exit expanded view</button><button type="button" class="editor-cancel" data-editor-action="cancel">Cancel</button><button type="button" class="button secondary" data-editor-action="preview">Preview</button><button type="submit" class="button" id="editor-save-button">Save draft <span aria-hidden="true">→</span></button></div></div><div id="editor-error" class="form-error" role="alert" hidden></div><div class="editor-writing"><div class="editor-body"><div class="editor-main">'+input('editor-title','Title',initial.title,'required maxlength="160" placeholder="Give your content a clear, useful title"')+'<div class="editor-content-label"><label id="body-label" for="editor-source">Content</label><div class="editor-mode-actions"><button type="button" data-editor-action="paste-markdown" class="source-toggle">Paste MDX / Markdown</button><button type="button" data-editor-action="copy-markdown" class="source-toggle">Copy Markdown</button><button type="button" data-editor-action="source" class="source-toggle" aria-pressed="false">Markdown</button></div></div><div class="rich-editor"><div class="editor-toolbar" role="toolbar" aria-label="Text formatting"><select aria-label="Paragraph style" id="paragraph-style"><option value="p">Normal text</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option><option value="h4">Heading 4</option></select>'+tool('bold','Bold · Ctrl / ⌘ B','<b>B</b>')+tool('italic','Italic · Ctrl / ⌘ I','<i>I</i>')+tool('underline','Underline · Ctrl / ⌘ U','<u>U</u>')+tool('strikeThrough','Strikethrough','<s>S</s>')+'<span class="toolbar-divider"></span>'+tool('link','Insert link','link')+tool('quote','Block quote','❝')+tool('code','Inline code','&lt;/&gt;')+tool('image','Insert image','image')+tool('video','Insert training video','video')+'<span class="toolbar-break" aria-hidden="true"></span>'+tool('insertUnorderedList','Bullet list','☷')+tool('insertOrderedList','Numbered list','1.')+tool('codeblock','Code block','codeblock')+tool('table','Insert table','table')+tool('divider','Horizontal divider','divider')+tool('clear','Clear formatting','clear')+tool('embed','Embed a resource','embed')+'<span class="toolbar-divider"></span>'+tool('undo','Undo','undo')+tool('redo','Redo','redo')+tool('fullscreen','Expand editor','fullscreen')+'</div><div class="editor-table-tools" hidden><span>Table</span><button type="button" data-table="row">Add row</button><button type="button" data-table="column">Add column</button><button type="button" data-table="remove">Remove table</button></div><div id="editor-rich" class="rich-body document-body" contenteditable="true" role="textbox" aria-label="Document content" aria-multiline="true" spellcheck="true" data-placeholder="Write here, paste Markdown, or insert an image into your content…">'+renderBody(initial.bodyMarkdown)+'</div><textarea id="editor-source" aria-label="Markdown content" class="markdown-source" hidden>'+escape(initial.bodyMarkdown)+'</textarea><div class="editor-body-bottom"><span>Paste Markdown, images, or formatted text.</span><span id="editor-word-count"></span></div></div>'+textarea('editor-highlights','Key highlights <small>Optional · one per line, up to 5</small>',initial.highlights.join('\n'),'rows="3" placeholder="What should a reader take away?"')+'<section class="editor-attachments" aria-label="Supporting attachments"><div class="editor-section-title"><div><h2>Attachments</h2><p>Add supporting documents, templates, or training materials.</p></div><label class="button secondary attachment-upload" for="editor-attachment-file">'+svg('attachment')+'Add files<input id="editor-attachment-file" type="file" multiple accept=".pdf,.txt,.md,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.gif" class="sr-only"></label></div><div id="editor-attachment-list"></div><p class="editor-field-hint">PDF, Office, text, Markdown, CSV, and images · up to 5 MB per file.</p></section>'+governanceSection() +textarea('editor-comment','Change summary',doc?'':'Initial draft.','required maxlength="2000" rows="2" placeholder="Explain what you created or changed for the audit trail."')+'<div class="editor-help">'+options.icon('shield')+'<p>Save your draft, then submit it for review. Your assigned manager approves the reviewed revision before it is published.</p></div></div><aside class="editor-sidebar" aria-label="Document settings"><h2>Document settings</h2>'+select('editor-type','Content type',editorTypes(),initialType(),!!doc)+commentsSetting()+'<p id="editor-insights-destination" hidden><strong>Destination: Insights</strong><br>Published inside WCSpedia.</p>'+select('editor-area','Business area',options.areas.map(a=>({id:a.id,name:a.title})),doc?.area||options.area||options.areas[0]?.id,!!doc)+slugField()+textarea('editor-summary','Excerpt',initial.summary,'required maxlength="1000" rows="4" placeholder="A short summary for search results and the article introduction."')+'<div id="editor-source-metadata">'+sourceMetadataSummary()+'</div><section class="editor-tag-settings"><h2>Make it discoverable</h2>'+tagField('tags','Topics',initial.tags,'For example: collateral, controls')+'<details class="editor-extra-tags"><summary>More organisation options</summary>'+tagField('processes','Processes',initial.processes,'For example: onboarding, annual review')+tagField('regions','Regions / markets',initial.regions,'For example: Global, EMEA, United Kingdom')+'</details><p class="editor-field-hint">Press Enter or comma to add a tag. Matching topics, processes, and markets connect related content.</p></section><div class="editor-cover-settings"><span class="editor-settings-label">Cover image <small>Optional</small></span><div id="editor-cover-preview"></div><label class="cover-upload" for="editor-cover-file">'+options.icon('plus')+'<strong>Upload cover image</strong><span>PNG, JPG, WebP, or GIF · up to 1 MB</span><input type="file" id="editor-cover-file" accept="image/png,image/jpeg,image/webp,image/gif" class="sr-only"></label><details class="cover-url"><summary>Use an image link</summary>'+input('editor-cover-url','Image URL',cover&&!cover.src.startsWith('data:')?cover.src:'','placeholder="https://… or /confluence/download/…"')+'<button type="button" class="link" data-editor-action="cover-url">Apply image</button></details>'+input('editor-cover-alt','Image description',cover?.alt||'','maxlength="300" placeholder="Describe the image for readers"')+input('editor-cover-caption','Caption',cover?.caption||'','maxlength="500" placeholder="Optional caption or source"')+'</div><div class="editor-ownership"><h2>Ownership & review</h2><div class="editor-owner"><span class="avatar">'+escape((options.people.find(p=>p.id===doc?.ownerId)||options.actor).initials)+'</span><div><strong>'+escape((options.people.find(p=>p.id===doc?.ownerId)||options.actor).name)+'</strong><span>Document owner</span></div></div>'+select('editor-reviewer','Reviewer',reviewers,doc?.reviewerId||managers[0]?.id||reviewers[0]?.id,!!doc)+select('editor-approver','Manager approver',managers,doc?.approverId||managers[0]?.id,!!doc)+'<div class="editor-approval-note">Approval date is recorded automatically when the manager approves this revision.</div></div></aside></div></div><div id="editor-reader" hidden></div></form></section>';
     }
     const tagValues={tags:clone(initial.tags),processes:clone(initial.processes),regions:clone(initial.regions)};
     function tagField(kind,label,values,placeholder){return '<div class="editor-field editor-tag-field"><label for="editor-'+kind+'">'+label+'</label><div class="editor-tag-list" data-tag-list="'+kind+'">'+tagChips(kind,values)+'</div><input id="editor-'+kind+'" data-tag-input="'+kind+'" aria-label="Add '+label.toLowerCase()+'" placeholder="'+placeholder+'" maxlength="80"></div>';}
@@ -6786,6 +6831,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     }
     function validateImportedMetadata(metadata){
       if(!metadata)return;
+      if(!doc)metadata.type=content.groupType(metadata.type);
       if(!(content.isInsightType(metadata.type)&&metadata.area==='insights')&&!options.areas.some(area=>area.id===metadata.area))throw Error('The metadata business area is not available here. Use an area ID from Document settings.');
       if(!editorTypes().some(type=>type.id===metadata.type))throw Error('The metadata content type is not available for this document. Use a type from Document settings.');
       if(doc&&(metadata.type!==doc.type||(!directInsight()&&metadata.area!==doc.area)))throw Error('An existing document must keep its business area and content type. Match those fields in the metadata block.');
@@ -7690,7 +7736,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
                 return;
               }
             } else win.location.assign(target);
-            if (!destroyed) win.WCSNotifications?.show('Opening a new ' + type.label.toLowerCase() + ' draft.', {type: 'info'});
+            if (!destroyed) win.WCSNotifications?.show('Opening the ' + type.value.toLowerCase() + ' editor.', {type: 'info'});
           } catch (_) { state('error', 'The authoring page is unavailable.'); win.WCSNotifications?.show('The authoring page is unavailable.', {type: 'error'}); }
           finally { finishIntent(intent); }
 
@@ -8627,27 +8673,43 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   'use strict';
   function create(options) {
     const H=root.WCSContentHealth, UI=root.WCSContentHealthUI, Table=root.WCSDataTable, esc=Table.escape;
-    let bookmarkService, healthService, bookmarkState={available:false,bookmarks:[],revision:null}, records={}, healthReady=false, healthError='', healthRecoveryId=null, generation=0, healthEditEpoch=0, disposed=false, mountedHealth=null;
+    let bookmarkService, healthService, bookmarkState={available:false,bookmarks:[],revision:null}, records={}, healthReady=false, healthError='', healthRecoveryId=null, generation=0, healthLoadGeneration=0, healthEditEpoch=0, disposed=false, mountedHealth=null;
     const context=options.context, url=options.url, documentHref=options.documentHref;
     function createServices(){
       const c=context();
       try{bookmarkService=root.WCSBookmarks.create({config:options.config,mode:options.config.mode,storage:options.storage,key:'wcspedia.bookmarks.v1',identity:c.identity,endpoint:options.config.bookmarksEndpoint,rootPageId:options.config.rootPageId,baseUrl:root.location.href,fetch:root.fetch?.bind(root),withLock:options.withLock,getDocuments:()=>context().documents,canRead:d=>context().canRead(d),publishedVersion:options.publishedVersion});}catch(error){bookmarkService={load:()=>Promise.reject(error),resolve:()=>[]};}
       try{healthService=root.WCSHealthService.create({config:options.config,identity:c.identity,storage:options.storage,withLock:options.withLock,fetch:root.fetch?.bind(root),location:root.location,getContext(id){const latest=context();return {document:latest.documents.find(d=>d.id===id&&latest.canRead(d)),people:latest.people,actor:latest.actor,canEdit:latest.canEdit(latest.documents.find(d=>d.id===id)),signedSOEID:latest.identity?.soeid};}});}catch(error){healthService={load:()=>Promise.reject(error)};}
     }
-    async function load(reset=false){
-      const current=++generation,wasActive=!!bookmarkService;if(reset||!bookmarkService){bookmarkState={available:false,bookmarks:[],revision:null,reason:'Loading saved items…'};records={};healthReady=false;healthError='Loading content health…';createServices();if(wasActive)options.refresh();}
+    function transientReadFailure(error){return ['NETWORK','TIMEOUT','SEARCH_TIMEOUT'].includes(error?.code)||[408,429,500,502,503,504].includes(error?.status);}
+    async function load(reset=false,settings={}){
+      const current=++generation,currentHealth=settings.bookmarksOnly?healthLoadGeneration:++healthLoadGeneration,wasActive=!!bookmarkService;
+      if(reset||!bookmarkService){bookmarkState={available:false,bookmarks:[],revision:null,reason:'Loading saved items…'};records={};healthReady=false;healthError='Loading content health…';createServices();if(wasActive)options.refresh();}
       const services={bookmarks:bookmarkService,health:healthService},startingBookmarkRevision=bookmarkState.revision,startingHealthEpoch=healthEditEpoch;
-      const result=await Promise.allSettled([services.bookmarks.load(),services.health.load(context().documents.filter(d=>context().canRead(d)))]);
-      if(disposed||current!==generation)return;
-      if(bookmarkState.revision===startingBookmarkRevision||result[0].status==='fulfilled'&&result[0].value.revision>=bookmarkState.revision)bookmarkState=result[0].status==='fulfilled'?result[0].value:{available:false,bookmarks:[],revision:null,reason:result[0].reason?.message||'Saved items are unavailable.'};
-      if(startingHealthEpoch===healthEditEpoch){healthReady=result[1].status==='fulfilled';records=healthReady?result[1].value:{};healthError=healthReady?'':result[1].reason?.message||'Content health is unavailable.';healthRecoveryId=healthReady?null:result[1].reason?.recoveryDocumentId||null;}
+      const active=()=>!disposed&&current===generation;
+      const bookmarks=Promise.resolve().then(()=>services.bookmarks.load()).then(next=>{
+        if(!active())return;
+        if(bookmarkState.revision===startingBookmarkRevision||next.revision>=bookmarkState.revision)bookmarkState=next;
+      },error=>{
+        if(!active()||bookmarkState.revision!==startingBookmarkRevision)return;
+        // Keep this tab's last successful list only for transport failures.
+        // Authentication, permissions, identity and invalid data fail closed.
+        bookmarkState=bookmarkState.available&&transientReadFailure(error)
+          ? {...bookmarkState,stale:true,reason:error.message}
+          : {available:false,bookmarks:[],revision:null,reason:error.message||'Saved items are unavailable.'};
+      }).then(()=>{if(active())settings.onBookmarks?.();});
+      const health=settings.bookmarksOnly?Promise.resolve():Promise.resolve().then(()=>services.health.load(context().documents.filter(d=>context().canRead(d)))).then(next=>{
+        if(!disposed&&currentHealth===healthLoadGeneration&&startingHealthEpoch===healthEditEpoch){healthReady=true;records=next;healthError='';healthRecoveryId=null;}
+      },error=>{
+        if(!disposed&&currentHealth===healthLoadGeneration&&startingHealthEpoch===healthEditEpoch){healthReady=false;records={};healthError=error.message||'Content health is unavailable.';healthRecoveryId=error.recoveryDocumentId||null;}
+      });
+      await Promise.all([bookmarks,health]);
     }
     function supportsHealth(doc){return !!doc&&(!healthService?.supports||healthService.supports(doc));}
     function report(doc){return healthReady&&supportsHealth(doc)?H.evaluate(doc,records[doc.id]||null,{people:context().people,now:new Date().toISOString()}):null;}
     function saved(doc){return !!doc&&bookmarkState.bookmarks.some(b=>b.documentId===doc.id);}
     function bookmarkButton(doc){
       if(!options.publishedVersion(doc))return '';
-      return '<button type="button" class="button secondary compact wcs-bookmark-button" data-library-action="bookmark" data-library-document="'+esc(doc.id)+'" aria-pressed="'+saved(doc)+'"'+(!bookmarkState.available?' disabled title="Saved items are unavailable"':'')+'><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="'+(saved(doc)?'currentColor':'none')+'" stroke="currentColor" stroke-width="1.6"><path d="M6 3h12v18l-6-4-6 4z"/></svg>'+(!bookmarkState.available?'Save unavailable':saved(doc)?'Saved':'Save')+'</button>';
+      return '<button type="button" class="button secondary compact wcs-bookmark-button" data-library-action="bookmark" data-library-document="'+esc(doc.id)+'" aria-pressed="'+saved(doc)+'"'+(!bookmarkState.available||bookmarkState.stale?' disabled title="Saved items are unavailable"':'')+'><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="'+(saved(doc)?'currentColor':'none')+'" stroke="currentColor" stroke-width="1.6"><path d="M6 3h12v18l-6-4-6 4z"/></svg>'+(!bookmarkState.available?'Save unavailable':saved(doc)?'Saved':'Save')+'</button>';
     }
     function tag(doc){
       if(!options.publishedVersion(doc))return '';
@@ -8670,7 +8732,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         const action='<a class="button secondary compact" href="'+esc(href)+'">'+(isHealth?'View checks':'Read document')+'<span class="sr-only"> '+esc(v.title)+'</span></a>';
         return {id:d.id,cells:isHealth?[title,Table.html(tag(d)),r?.workflowStatus||'Unavailable',c.people.find(p=>p.id===r?.assigneeId)?.name||'Unassigned',r?.dueAt?options.date(r.dueAt):'—',Table.html('<div class="wcs-data-table-actions">'+action+'</div>')]:[title,Table.html(d.nativePage?'<span class="wcs-data-table-secondary">—</span>':tag(d)),row.savedAt?options.date(row.savedAt):'—',Table.html('<div class="wcs-data-table-actions">'+action+bookmarkButton(d)+'</div>')]};
       }):[];
-      const error=available?'':'<div class="library-unavailable" role="status"><strong>'+ (isHealth?'Content health is unavailable':'Saved items are unavailable')+'</strong><p>'+esc(isHealth?healthError:bookmarkState.reason||'The personal preferences service is not configured.')+'</p><button type="button" class="button secondary" data-library-action="retry" data-library-retry="'+kind+'">Try again</button></div>';
+      const stale=!isHealth&&bookmarkState.stale;
+      const error=available&&!stale?'':'<div class="library-unavailable" role="status"><strong>'+ (isHealth?'Content health is unavailable':stale?'Showing previously loaded saved items. Refresh unavailable.':'Saved items are unavailable')+'</strong><p>'+esc(isHealth?healthError:bookmarkState.reason||'The personal preferences service is not configured.')+'</p><button type="button" class="button secondary" data-library-action="retry" data-library-retry="'+kind+'">Try again</button></div>';
       return '<div class="discovery workspace-page"><section class="press-heading page-panel"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a><span aria-hidden="true">›</span><span>'+ (isHealth?'Content health':'Saved items')+'</span></nav><div class="eyebrow">'+(isHealth?'Maintain trusted knowledge':'Your personal library')+'</div><h1>'+ (isHealth?'Keep knowledge current.':'Saved items')+'</h1><p>'+ (isHealth?'Rule-based checks, clear ownership, and a recorded path to resolution.':options.config.authoringMode==='confluence-session'?'Your saved documents, using Confluence’s Save for later.':'Your saved documents always open the current approved version.')+'</p></div></section><div class="discovery-container">'+(options.config.pageRole==='saved'?'':tabs(kind,mode))+error+'<form class="library-workspace-search" data-library-search="'+kind+'" role="search"><label><span>Search '+(isHealth?'content health':'saved items')+'</span><input name="q" type="search" maxlength="500" value="'+esc(q)+'" placeholder="Document title or reference"></label>'+(isHealth?'<label><span>Health status</span><select name="health"><option value="">All statuses</option>'+['Action required','Review due','Check needed','Healthy'].map(label=>'<option'+(filter===label?' selected':'')+'>'+label+'</option>').join('')+'</select></label>':'')+'<button class="button" type="submit">Search</button><a class="link" href="'+url('/'+kind)+'">Reset</a></form><div class="library-count" role="status">'+(available?total+' '+(total===1?'document':'documents'):'Results unavailable')+'</div>'+Table.render({label:isHealth?'Content health worklist':'Saved documents',columns,rows:tableRows,empty:{title:available?(isHealth?'No documents to maintain':'No saved documents yet'):'Unable to load this list',description:available?(q||filter?'Try another search or remove a filter.':isHealth?'Published documents you own, are assigned, or may edit appear here.':options.config.authoringMode==='confluence-session'?'Choose Save on a document, or use Confluence’s Save for later, to add it to your personal library.':'Choose Save on an approved document to add it to your personal library.'):'Try again when the service is available.'}})+(available&&pages>1?'<div class="discovery-pagination"><span>Showing '+((page-1)*8+1)+'–'+Math.min(page*8,total)+' of '+total+'</span>'+root.WCSPagination.render({totalPages:pages,currentPage:page,href:n=>url('/'+kind,{q,health:filter,page:n}),ariaLabel:isHealth?'Content health pages':'Saved item pages'})+'</div>':'')+'<p class="quiet-note library-scope-note">'+(isHealth?'Checks run when this view loads and after a document or rule changes. External resource access is verified by an accountable manager; a failed browser request is never labelled a broken resource.':'Saved items are personal to your signed-in account. Deleted documents and documents you can no longer read are excluded.')+'</p></div></div>';
     }
     function mount(container){
@@ -8688,11 +8751,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     }
     async function click(event){
       const button=event.target.closest('[data-library-action]');if(!button)return;
-      const action=button.dataset.libraryAction;if(button.disabled||disposed||action==='bookmark'&&!bookmarkState.available)return;
+      const action=button.dataset.libraryAction;if(button.disabled||disposed||action==='bookmark'&&(!bookmarkState.available||bookmarkState.stale))return;
       const routeKey=root.location.href,requestGeneration=generation;
       button.disabled=true;button.setAttribute('aria-busy','true');
       try{
-        if(action==='retry'){const isHealth=button.dataset.libraryRetry==='health';if(isHealth&&healthRecoveryId&&healthService.recover)await healthService.recover(healthRecoveryId);await load();if(disposed||routeKey!==root.location.href)return;options.refresh();const ready=isHealth?healthReady:bookmarkState.available;options.notify(ready?(isHealth?'Content health refreshed.':'Saved items refreshed.'):(isHealth?'Content health is still unavailable.':'Saved items are still unavailable.'),{type:ready?'success':'warning'});return;}
+        if(action==='retry'){const isHealth=button.dataset.libraryRetry==='health';if(isHealth&&healthRecoveryId&&healthService.recover)await healthService.recover(healthRecoveryId);await load(false,{bookmarksOnly:!isHealth});if(disposed||routeKey!==root.location.href)return;options.refresh();const ready=isHealth?healthReady:bookmarkState.available&&!bookmarkState.stale;options.notify(ready?(isHealth?'Content health refreshed.':'Saved items refreshed.'):(isHealth?'Content health is still unavailable.':'Saved items are still unavailable.'),{type:ready?'success':'warning'});return;}
         if(action==='bookmark'){
           const id=button.dataset.libraryDocument,doc=context().documents.find(d=>d.id===id)||bookmarkService.resolve(bookmarkState).find(row=>row.documentId===id)?.doc,identity=context().identity?.soeid,service=bookmarkService;
           const next=await service.set(id,!saved(doc),{expectedRevision:bookmarkState.revision});
@@ -8827,18 +8890,18 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 /* WCSpedia Insights: local filtering and a small editorial listing; no network requests. */
 (function (global, factory) {
   'use strict';
-  var api = factory();
+  var api = factory(typeof module === 'object' && module.exports ? require('./editor-content.js') : global.WCSEditorContent);
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (global) global.WCSInsights = api;
-})(typeof window !== 'undefined' ? window : null, function () {
+})(typeof window !== 'undefined' ? window : null, function (content) {
   'use strict';
-  var DEFAULT_TYPES = ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'];
+  var DEFAULT_TYPES = content.INSIGHT_CHOICES;
   var mounts = new WeakMap();
   function text(value) { return String(value == null ? '' : value); }
   function esc(value) { return text(value).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function fold(value) { return text(value).trim().toLowerCase(); }
   function unique(values) { var seen = new Set(); return values.filter(function (v) { var key = fold(v); if (!key || seen.has(key)) return false; seen.add(key); return true; }); }
-  function typesFor(options) { var list = Array.isArray(options.types) ? options.types : DEFAULT_TYPES; return unique(list.filter(function (t) { return typeof t === 'string'; }).map(function (t) { return t.trim(); })); }
+  function typesFor(options) { var list = Array.isArray(options.types) ? options.types : DEFAULT_TYPES; return unique(list.filter(function (t) { return typeof t === 'string'; }).map(function (t) { return content.groupType(t.trim()); })); }
   function dateValue(value) { var n = Date.parse(value); return Number.isFinite(n) ? n : 0; }
   function tagsFor(item) { return unique((Array.isArray(item.tags) ? item.tags : []).filter(function (t) { return typeof t === 'string'; }).map(function (t) { return t.trim(); })); }
   function select(options) {
@@ -8846,7 +8909,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     var types = typesFor(options), allowed = new Map(types.map(function (type) { return [fold(type), type]; }));
     var source = Array.isArray(options.documents) ? options.documents : [], ids = new Set();
     var eligible = source.filter(function (item) {
-      if (!item || typeof item !== 'object' || !text(item.id) || ids.has(text(item.id)) || !allowed.has(fold(item.type))) return false;
+      if (!item || typeof item !== 'object' || !text(item.id) || ids.has(text(item.id)) || !allowed.has(fold(content.groupType(item.type)))) return false;
       if (item.deletedAt || item.status && item.status !== 'Published') return false;
       ids.add(text(item.id)); return true;
     });
@@ -8854,7 +8917,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     var topics = unique(eligible.reduce(function (all, item) { return all.concat(tagsFor(item)); }, [])).sort(function (a,b) { return a.localeCompare(b); });
     var terms = fold(filter.q).split(/\s+/).filter(Boolean);
     var items = eligible.filter(function (item) {
-      if (fold(filter.type) !== 'all' && fold(item.type) !== fold(filter.type)) return false;
+      if (fold(filter.type) !== 'all' && fold(content.groupType(item.type)) !== fold(content.groupType(filter.type))) return false;
       if (!options.prefiltered && filter.topic && !tagsFor(item).some(function (tag) { return fold(tag) === fold(filter.topic); })) return false;
       var haystack = fold([item.title, item.summary, item.type, text(item.author && (item.author.name || item.author.displayName) || item.author), tagsFor(item).join(' ')].join(' '));
       return options.prefiltered === true || terms.every(function (term) { return haystack.indexOf(term) !== -1; });
@@ -8890,18 +8953,17 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       (cover?'<div class="wcs-insights-cover"><img src="'+esc(cover)+'" alt="" loading="lazy" decoding="async" width="480" height="480"></div>':'')+
       '<div class="wcs-insights-card-body"><p class="wcs-insights-topic">'+esc(topic)+'</p><h2>'+esc(label)+'</h2>'+
       (item.summary?'<p class="wcs-insights-summary">'+esc(item.summary)+'</p>':'')+
-      '<div class="wcs-insights-card-footer"><span>'+esc(item.type)+(updated?' · '+esc(updated):'')+(author?'<span class="wcs-insights-author">'+esc(author)+'</span>':'')+'</span>'+(url?icon('arrow'):'')+'</div></div>'+(url?'</a>':'</div>')+'</article>';
+      '<div class="wcs-insights-card-footer"><span>'+esc(content.typeLabel(item.type))+(updated?' · '+esc(updated):'')+(author?'<span class="wcs-insights-author">'+esc(author)+'</span>':'')+'</span>'+(url?icon('arrow'):'')+'</div></div>'+(url?'</a>':'</div>')+'</article>';
   }
   function render(options) {
     options = options || {}; var model = select(options), filter = model.filter, active = fold(filter.type), id = 'wcs-insights-results';
-    var labels = {'Blog':'Blogs','Knowledge sharing':'Knowledge sharing','Reference':'Reference'};
-    var tabs = ['all'].concat(model.types).map(function (type,index) { var selected = fold(type) === active; return '<button type="button" role="tab" aria-selected="'+selected+'" aria-busy="'+Boolean(selected && options.loading)+'" aria-controls="'+id+'" id="wcs-insights-tab-'+index+'" tabindex="'+(selected?'0':'-1')+'" data-wcs-insights-type="'+esc(type)+'">'+esc(type === 'all'?'All':labels[type] || type)+'</button>'; }).join('');
+    var tabs = ['all'].concat(model.types).map(function (type,index) { var selected = fold(type) === active; return '<button type="button" role="tab" aria-selected="'+selected+'" aria-busy="'+Boolean(selected && options.loading)+'" aria-controls="'+id+'" id="wcs-insights-tab-'+index+'" tabindex="'+(selected?'0':'-1')+'" data-wcs-insights-type="'+esc(type)+'">'+esc(type === 'all'?'All':content.typeLabel(type))+'</button>'; }).join('');
     var selectedIndex = ['all'].concat(model.types).findIndex(function (type) { return fold(type) === active; });
     var topicOptions = model.topics.slice(); if (filter.topic && !topicOptions.some(function (topic) { return fold(topic) === fold(filter.topic); })) topicOptions.unshift(filter.topic);
     var count = options.loading ? (model.total ? 'Updating insights…' : 'Loading insights…') : model.total+' '+(model.total===1?'insight':'insights')+(options.complete===false?' loaded':'');
     var cards = model.items.map(function (item) { return card(item, options); }).join('');
     var message = options.error ? '<div class="wcs-insights-message wcs-insights-error" role="alert"><p>'+esc(options.error)+'</p><button type="button" data-wcs-insights-retry>Try again</button></div>' : '';
-    if (!cards && !options.loading && !options.error) cards = '<div class="wcs-insights-empty"><h2>No insights found</h2><p>'+(filter.q || filter.topic || active!=='all' ? 'Try another topic or clear your filters.' : 'Published blogs, knowledge sharing and reference articles will appear here.')+'</p>'+((filter.q || filter.topic || active!=='all')?'<button type="button" data-wcs-insights-reset>Clear filters</button>':'')+'</div>';
+    if (!cards && !options.loading && !options.error) cards = '<div class="wcs-insights-empty"><h2>No insights found</h2><p>'+(filter.q || filter.topic || active!=='all' ? 'Try another topic or clear your filters.' : 'Published guides, blogs, training and reports will appear here.')+'</p>'+((filter.q || filter.topic || active!=='all')?'<button type="button" data-wcs-insights-reset>Clear filters</button>':'')+'</div>';
     return '<section class="wcs-insights" aria-labelledby="wcs-insights-heading" data-wcs-insights-filter="'+esc(JSON.stringify(filter))+'">'+
       '<div class="wcs-insights-heading"><h1 id="wcs-insights-heading">All Insights</h1>'+
       '</div>'+
@@ -9216,5 +9278,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['mine'] = { version: '090f0eb8c44e' };
+  modules['mine'] = { version: 'b06ac5956f6f' };
 })();

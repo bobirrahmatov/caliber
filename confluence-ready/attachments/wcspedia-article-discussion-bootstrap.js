@@ -91,15 +91,17 @@
   function start() {
     var id = pageId();
     if (stopped || host || !id) return;
-    var content = Array.from(doc.querySelectorAll('#main-content,.wiki-content')).find(function (node) { return !node.closest('#navHeader,#navBar,#header,header,.aui-header,[role="banner"],[data-wcs-header-actions]'); });
+    // Prefer the actual page body. Included navigation can contain its own
+    // .wiki-content, even when its outer wrapper has no recognizable header ID.
+    var content = Array.from(doc.querySelectorAll('#main-content')).find(function (node) { return !node.closest('#navHeader,#navBar,#header,header,.aui-header,[role="banner"],[data-wcs-header-actions]'); });
     if (!content) return;
     host = doc.createElement('div'); host.setAttribute('data-wcs-article-discussion-host', ''); content.append(host);
-    var load = doc.createElement('button'); load.type = 'button'; load.className = 'wcs-discussion-load'; load.textContent = 'Load article comments';
-    load.addEventListener('click', function () { activate(id); }); host.append(load);
+    // An empty sentinel reserves no visible control in the shared header.
+    host.style.minHeight = '1px';
     if (typeof global.IntersectionObserver === 'function') {
       observer = new global.IntersectionObserver(function (entries) { if (entries.some(function (entry) { return entry.isIntersecting; })) activate(id); }, {rootMargin: '300px 0px'});
       observer.observe(host);
-    }
+    } else activate(id);
   }
   function destroy() {
     stopped = true; generation++; pending = false; if (observer) observer.disconnect(); if (controller) controller.abort(); if (view) view.destroy(); if (host) host.remove();
