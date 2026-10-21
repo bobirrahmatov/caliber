@@ -1028,6 +1028,18 @@
 #wcspedia .entitlement-tags>span{display:inline-block!important;background:#eff4f8!important;color:#17355f!important;padding:4px 8px!important;border-radius:5px!important;font-size:12px!important;line-height:1.5!important}
 #wcspedia .entitlement-history{margin-top:36px!important}
 
+/* Keep the legend outside the grid: fieldset grid layout varies by browser. */
+#wcspedia .entitlement-permissions{min-width:0!important;width:100%!important;box-sizing:border-box!important;border:1px solid var(--line,#d6e0ea)!important;border-radius:8px!important;margin:20px 0!important;padding:14px 16px!important}
+#wcspedia .entitlement-permissions legend{float:none!important;width:auto!important;padding:0 6px!important;margin:0!important;font-size:14px!important;color:var(--navy,#17355f)!important}
+#wcspedia .entitlement-permission-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px 20px!important}
+#wcspedia [data-entitlement-form] .entitlement-permission{display:flex!important;align-items:flex-start!important;gap:9px!important;min-width:0!important;margin:0 0 12px!important;padding:0!important;font-size:14px!important;line-height:1.5!important;color:var(--navy,#17355f)!important;cursor:pointer}
+#wcspedia .entitlement-permission-grid .entitlement-permission{margin:0!important}
+#wcspedia [data-entitlement-form] .entitlement-permission input[type=checkbox]{appearance:auto!important;accent-color:var(--blue,#255be3)!important;flex:0 0 18px!important;width:18px!important;height:18px!important;min-height:18px!important;margin:2px 0 0!important;padding:0!important}
+#wcspedia [data-entitlement-form] .entitlement-permission span{min-width:0!important;overflow-wrap:anywhere!important}
+@media(max-width:520px){
+ #wcspedia .entitlement-permission-grid{grid-template-columns:minmax(0,1fr)!important}
+}
+
 /* Reading estimates and view counts share the existing content typography. */
 #wcspedia .feature-metrics{display:flex;align-items:center;flex-wrap:wrap;gap:8px 18px;color:var(--muted);font-size:12px;margin:18px 0 0}
 #wcspedia .document-reading-time,#wcspedia .document-view-count{white-space:nowrap;font-variant-numeric:tabular-nums}

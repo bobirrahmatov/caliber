@@ -9,6 +9,8 @@ The visible categories are **Guides, Blogs, Training and Reports**. The creation
 
 The editor hides business-area, reviewer, approver and governance fields for Insights content. Topic tags and the comments setting remain available. Existing pages keep their history and are not moved in bulk. An authorized editor saving a legacy non-Job-aid document adopts direct publication to Insights; the routing change is recorded in its audit history.
 
+Direct Insights publishing does not call `PUT /rest/api/content/{id}/restriction` or resolve reviewer/manager accounts. Like the earlier `blog.html`, it uses native page creation and editing, with the signed-in account's actual permissions. Unlike the older template copier, the current editor retains its private Working record, attachments and exact-request recovery. Working-parent viewing restrictions are still verified before staging content. Existing page restrictions are preserved, and a native edit denial still stops publication. Only Job aid creation/approval provisions per-page edit restrictions.
+
 The listing follows the visual hierarchy of [Citi All Insights](https://www.citigroup.com/global/insights/all): a plain editorial heading, underlined type filters, topic/search controls and a three-column article grid. It inherits the existing Confluence font/header, uses real article cover attachments from a matching published page version when available and falls back to readable text cards when no usable cover exists. It introduces no external image service or second site header.
 
 ## Upload and navigation

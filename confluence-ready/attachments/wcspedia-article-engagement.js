@@ -52,20 +52,21 @@
       if (url.origin !== origin || url.pathname !== rawPath || /%(?:2e|2f|5c)/i.test(rawPath) || !(url.pathname.startsWith(context + '/rest/api/') || url.pathname.startsWith(context + '/download/attachments/'))) fail('The request escaped the configured Confluence context.', 'SCOPE');
       return url;
     }
-    async function bounded(response, signal) {
+    async function bounded(response, signal, maxBytes) {
+      maxBytes = maxBytes || MAX_BYTES;
       var length = response.headers && response.headers.get('content-length');
-      if (length != null && /^\d+$/.test(length) && Number(length) > MAX_BYTES) { try { await response.body.cancel(); } catch (_) {} fail('The Confluence response exceeds 10 MB.', 'ATTACHMENT_TOO_LARGE'); }
+      if (length != null && /^\d+$/.test(length) && Number(length) > maxBytes) { try { await response.body.cancel(); } catch (_) {} fail('The Confluence response exceeds its size limit.', 'ATTACHMENT_TOO_LARGE'); }
       if (response.body && typeof response.body.getReader === 'function') {
         var reader = response.body.getReader(), parts = [], size = 0;
         var cancel = function () { reader.cancel().catch(function () {}); };
         signal.addEventListener('abort', cancel, { once: true });
         try {
-          while (true) { checkAbort(signal); var part = await reader.read(); checkAbort(signal); if (part.done) break; size += part.value.byteLength; if (size > MAX_BYTES) { try { await reader.cancel(); } catch (_) {} fail('The Confluence response exceeds 10 MB.', 'ATTACHMENT_TOO_LARGE'); } parts.push(part.value); }
+          while (true) { checkAbort(signal); var part = await reader.read(); checkAbort(signal); if (part.done) break; size += part.value.byteLength; if (size > maxBytes) { try { await reader.cancel(); } catch (_) {} fail('The Confluence response exceeds its size limit.', 'ATTACHMENT_TOO_LARGE'); } parts.push(part.value); }
         } finally { signal.removeEventListener('abort', cancel); reader.releaseLock(); }
         var bytes = new Uint8Array(size), offset = 0; parts.forEach(function (part) { bytes.set(part, offset); offset += part.byteLength; }); return bytes;
       }
       var fallback = new Uint8Array(await response.arrayBuffer());
-      if (fallback.byteLength > MAX_BYTES) fail('The Confluence response exceeds 10 MB.', 'ATTACHMENT_TOO_LARGE');
+      if (fallback.byteLength > maxBytes) fail('The Confluence response exceeds its size limit.', 'ATTACHMENT_TOO_LARGE');
       return fallback;
     }
     async function transport(path, init) {
@@ -74,9 +75,10 @@
       var headers = new Headers(init.headers || {});
       if (['authorization', 'cookie', 'proxy-authorization'].some(function (key) { return headers.has(key); })) fail('Use the current Confluence session; do not supply credentials.', 'CONFIGURATION');
       headers.set('Accept', 'application/json'); if (mutation) headers.set('X-Requested-With', 'XMLHttpRequest');
-      var response, controller = new AbortController(), timer, onAbort;
+      var response, rejection, controller = new AbortController(), timer, onAbort;
       var stopped = new Promise(function (_, reject) {
         function stop(external) {
+          if (rejection) { reject(rejection); controller.abort(); return; }
           var error = new Error(mutation ? 'Confluence has not confirmed '+method+' '+url.pathname+'. Use Check save to recover this same request; do not start another document.' : external ? 'The request was cancelled.' : 'Confluence took too long to respond. Try again.');
           if (mutation) error.code = 'UNKNOWN_COMMIT'; else if (external) error.name = 'AbortError'; else error.code = 'TIMEOUT';
           reject(error); controller.abort();
@@ -89,10 +91,21 @@
       try { response = await fetcher(url.href, Object.assign({}, init, { headers: headers, method: method, credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: controller.signal })); }
       catch (error) { if (!mutation && error.name === 'AbortError') throw error; fail(mutation ? 'The native write outcome is unknown. Preserve the request ID and reload to reconcile it.' : 'Confluence could not be reached.', mutation ? 'UNKNOWN_COMMIT' : 'NETWORK'); }
       if (!response.ok) {
-        try { await response.body.cancel(); } catch (_) {}
         var codes = { 401: 'AUTH_REQUIRED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 413: 'ATTACHMENT_TOO_LARGE' };
         var code = codes[response.status] || (mutation && response.status >= 500 ? 'UNKNOWN_COMMIT' : 'CONFLUENCE_HTTP');
-        fail(response.status === 413 ? 'Confluence rejected this upload. Each attachment must be at most 10 MB; the host may impose a smaller limit.' : 'Confluence returned HTTP ' + response.status + ' for ' + method + ' ' + url.pathname + '.', code, response.status);
+        rejection = new Error(response.status === 413 ? 'Confluence rejected this upload. Each attachment must be at most 10 MB; the host may impose a smaller limit.' : 'Confluence returned HTTP ' + response.status + ' for ' + method + ' ' + url.pathname + '.');
+        rejection.code = code; rejection.status = response.status;
+        // A short structured validation reason is useful; HTML proxy/login
+        // pages, stack traces and full responses must not become UI content.
+        if (response.status === 400 && /\bapplication\/(?:[a-z0-9.-]+\+)?json\b/i.test(response.headers.get('content-type') || '')) {
+          try {
+            var problem = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(await bounded(response, controller.signal, 8192)));
+            var messages = [problem && problem.message].concat(problem && Array.isArray(problem.errorMessages) ? problem.errorMessages.slice(0,3) : []);
+            var detail = messages.filter(function(v){return typeof v === 'string' && !/[<>]/.test(v);}).join(' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,500);
+            if (detail) rejection.message += ' Server: ' + detail;
+          } catch (_) { /* Keep the original HTTP status if diagnostics are unavailable. */ }
+        } else { try { await response.body.cancel(); } catch (_) {} }
+        throw rejection;
       }
       if (response.status === 204 || method === 'HEAD') return null;
       try {

@@ -3249,20 +3249,21 @@
       if (url.origin !== origin || url.pathname !== rawPath || /%(?:2e|2f|5c)/i.test(rawPath) || !(url.pathname.startsWith(context + '/rest/api/') || url.pathname.startsWith(context + '/download/attachments/'))) fail('The request escaped the configured Confluence context.', 'SCOPE');
       return url;
     }
-    async function bounded(response, signal) {
+    async function bounded(response, signal, maxBytes) {
+      maxBytes = maxBytes || MAX_BYTES;
       var length = response.headers && response.headers.get('content-length');
-      if (length != null && /^\d+$/.test(length) && Number(length) > MAX_BYTES) { try { await response.body.cancel(); } catch (_) {} fail('The Confluence response exceeds 10 MB.', 'ATTACHMENT_TOO_LARGE'); }
+      if (length != null && /^\d+$/.test(length) && Number(length) > maxBytes) { try { await response.body.cancel(); } catch (_) {} fail('The Confluence response exceeds its size limit.', 'ATTACHMENT_TOO_LARGE'); }
       if (response.body && typeof response.body.getReader === 'function') {
         var reader = response.body.getReader(), parts = [], size = 0;
         var cancel = function () { reader.cancel().catch(function () {}); };
         signal.addEventListener('abort', cancel, { once: true });
         try {
-          while (true) { checkAbort(signal); var part = await reader.read(); checkAbort(signal); if (part.done) break; size += part.value.byteLength; if (size > MAX_BYTES) { try { await reader.cancel(); } catch (_) {} fail('The Confluence response exceeds 10 MB.', 'ATTACHMENT_TOO_LARGE'); } parts.push(part.value); }
+          while (true) { checkAbort(signal); var part = await reader.read(); checkAbort(signal); if (part.done) break; size += part.value.byteLength; if (size > maxBytes) { try { await reader.cancel(); } catch (_) {} fail('The Confluence response exceeds its size limit.', 'ATTACHMENT_TOO_LARGE'); } parts.push(part.value); }
         } finally { signal.removeEventListener('abort', cancel); reader.releaseLock(); }
         var bytes = new Uint8Array(size), offset = 0; parts.forEach(function (part) { bytes.set(part, offset); offset += part.byteLength; }); return bytes;
       }
       var fallback = new Uint8Array(await response.arrayBuffer());
-      if (fallback.byteLength > MAX_BYTES) fail('The Confluence response exceeds 10 MB.', 'ATTACHMENT_TOO_LARGE');
+      if (fallback.byteLength > maxBytes) fail('The Confluence response exceeds its size limit.', 'ATTACHMENT_TOO_LARGE');
       return fallback;
     }
     async function transport(path, init) {
@@ -3271,9 +3272,10 @@
       var headers = new Headers(init.headers || {});
       if (['authorization', 'cookie', 'proxy-authorization'].some(function (key) { return headers.has(key); })) fail('Use the current Confluence session; do not supply credentials.', 'CONFIGURATION');
       headers.set('Accept', 'application/json'); if (mutation) headers.set('X-Requested-With', 'XMLHttpRequest');
-      var response, controller = new AbortController(), timer, onAbort;
+      var response, rejection, controller = new AbortController(), timer, onAbort;
       var stopped = new Promise(function (_, reject) {
         function stop(external) {
+          if (rejection) { reject(rejection); controller.abort(); return; }
           var error = new Error(mutation ? 'Confluence has not confirmed '+method+' '+url.pathname+'. Use Check save to recover this same request; do not start another document.' : external ? 'The request was cancelled.' : 'Confluence took too long to respond. Try again.');
           if (mutation) error.code = 'UNKNOWN_COMMIT'; else if (external) error.name = 'AbortError'; else error.code = 'TIMEOUT';
           reject(error); controller.abort();
@@ -3286,10 +3288,21 @@
       try { response = await fetcher(url.href, Object.assign({}, init, { headers: headers, method: method, credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: controller.signal })); }
       catch (error) { if (!mutation && error.name === 'AbortError') throw error; fail(mutation ? 'The native write outcome is unknown. Preserve the request ID and reload to reconcile it.' : 'Confluence could not be reached.', mutation ? 'UNKNOWN_COMMIT' : 'NETWORK'); }
       if (!response.ok) {
-        try { await response.body.cancel(); } catch (_) {}
         var codes = { 401: 'AUTH_REQUIRED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 413: 'ATTACHMENT_TOO_LARGE' };
         var code = codes[response.status] || (mutation && response.status >= 500 ? 'UNKNOWN_COMMIT' : 'CONFLUENCE_HTTP');
-        fail(response.status === 413 ? 'Confluence rejected this upload. Each attachment must be at most 10 MB; the host may impose a smaller limit.' : 'Confluence returned HTTP ' + response.status + ' for ' + method + ' ' + url.pathname + '.', code, response.status);
+        rejection = new Error(response.status === 413 ? 'Confluence rejected this upload. Each attachment must be at most 10 MB; the host may impose a smaller limit.' : 'Confluence returned HTTP ' + response.status + ' for ' + method + ' ' + url.pathname + '.');
+        rejection.code = code; rejection.status = response.status;
+        // A short structured validation reason is useful; HTML proxy/login
+        // pages, stack traces and full responses must not become UI content.
+        if (response.status === 400 && /\bapplication\/(?:[a-z0-9.-]+\+)?json\b/i.test(response.headers.get('content-type') || '')) {
+          try {
+            var problem = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(await bounded(response, controller.signal, 8192)));
+            var messages = [problem && problem.message].concat(problem && Array.isArray(problem.errorMessages) ? problem.errorMessages.slice(0,3) : []);
+            var detail = messages.filter(function(v){return typeof v === 'string' && !/[<>]/.test(v);}).join(' ').replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,500);
+            if (detail) rejection.message += ' Server: ' + detail;
+          } catch (_) { /* Keep the original HTTP status if diagnostics are unavailable. */ }
+        } else { try { await response.body.cancel(); } catch (_) {} }
+        throw rejection;
       }
       if (response.status === 204 || method === 'HEAD') return null;
       try {
@@ -4195,13 +4208,43 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       return actors;
     }
     async function restrictUpdate(p,users,signal){
-      var readBefore=restrictionRows(await restrictions(p.id,'read',signal),'read');
-      await request('/rest/api/content/'+p.id+'/restriction','PUT',[{operation:'update',restrictions:{user:users,group:[]}}],signal);
-      var r=restrictionRows(await restrictions(p.id,'update',signal),'update'),expected=users.map(function(u){return E.normalizeSOEID(u.username);}).sort(),actual=r.users.map(function(u){return E.normalizeSOEID(u.username);}).sort();
-      var readAfter=restrictionRows(await restrictions(p.id,'read',signal),'read');
-      function subjects(value){return {users:value.users.map(function(u){return u.userKey||u.accountId||u.username;}).sort(),groups:value.groups.map(function(g){return g.name;}).sort()};}
-      if(JSON.stringify(subjects(readBefore))!==JSON.stringify(subjects(readAfter)))fail('Native viewing restrictions changed while saving. Inspect the page restrictions before continuing.','RESTRICTIONS_CONFLICT');
-      if(r.groups.length||JSON.stringify(expected)!==JSON.stringify(actual))fail('Native edit restrictions were not confirmed. The page remains in the restricted working area.','RESTRICTIONS_UNCONFIRMED');
+      // Use the documented Server/DC write shape, not expanded user responses.
+      // Omitted operations are preserved by Confluence: do not rewrite read
+      // restrictions from a snapshot that another administrator may change.
+      var subjectsForWrite=users.map(function(user){
+        if(!user||typeof user.username!=='string'||!user.username.trim())fail('Confluence did not return an assigned username for page restrictions.','IDENTITY_MAPPING');
+        return {type:'known',username:user.username};
+      });
+      if(!subjectsForWrite.length)fail('At least one verified editor is required for page restrictions.','IDENTITY_MAPPING');
+      var expected=subjectsForWrite.map(function(u){return E.normalizeSOEID(u.username);}).sort();
+      function matches(r){return !r.groups.length&&JSON.stringify(expected)===JSON.stringify(r.users.map(function(u){return E.normalizeSOEID(u.username);}).sort());}
+      var stage='read existing restrictions';
+      try{
+        var readBefore=restrictionRows(await restrictions(p.id,'read',signal),'read');
+        var before=restrictionRows(await restrictions(p.id,'update',signal),'update');
+        // An exact native policy already satisfies this step. This also allows
+        // an authorized space owner to provision it through the native dialog.
+        // Never accept a superset, groups, an unexpanded list or a failed read.
+        if(!matches(before)){
+          stage='set editing restrictions';
+          await request('/rest/api/content/'+p.id+'/restriction','PUT',[{operation:'update',restrictions:{user:subjectsForWrite,group:[]}}],signal);
+        }
+        stage='verify restrictions';
+        var r=restrictionRows(await restrictions(p.id,'update',signal),'update');
+        var readAfter=restrictionRows(await restrictions(p.id,'read',signal),'read');
+        function subjects(value){return {users:value.users.map(function(u){return u.userKey||u.accountId||u.username;}).sort(),groups:value.groups.map(function(g){return g.name;}).sort()};}
+        if(JSON.stringify(subjects(readBefore))!==JSON.stringify(subjects(readAfter)))fail('Native viewing restrictions changed while saving. Inspect the page restrictions before continuing.','RESTRICTIONS_CONFLICT');
+        if(!matches(r))fail('Native edit restrictions were not confirmed. Publication has not continued.','RESTRICTIONS_UNCONFIRMED');
+      }catch(error){
+        aborted(signal);
+        if(error.name==='AbortError')throw error;
+        // Preserve status/code and UNKNOWN_COMMIT semantics for exact-request
+        // recovery. A denial must not become a retry against a looser endpoint.
+        var guidance=error.status===404?'The restriction endpoint or page is unavailable to this account; a successful page GET does not verify this endpoint.':error.status===401?'Sign in again before checking this same save.':error.status===403||error.code==='FORBIDDEN'?'Ask the space owner to check native Edit and Restrict permissions; JSON entitlements do not grant these.':error.status===400?'Confluence rejected the restriction request; use the server detail below to check the assigned native usernames and permissions.':'The restriction step was not confirmed.';
+        error.message='Job aid page '+p.id+': could not '+stage+'. '+guidance+' Required individual editors: '+subjectsForWrite.map(function(u){return u.username;}).join(', ')+'. Keep viewing restrictions unchanged. '+error.message;
+        if([400,403,404,405].includes(error.status)||['FORBIDDEN','UNKNOWN_COMMIT'].includes(error.code))error.recoverable=true;
+        throw error;
+      }
     }
     async function findSeed(title,marker,signal){
       var r=await request('/rest/api/content?type=page&spaceKey='+encodeURIComponent(space)+'&title='+encodeURIComponent(title)+'&limit=2&expand='+encodeURIComponent(EXPAND),null,undefined,signal);
@@ -4322,7 +4365,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if((!areas[command.fields.area]&&!(Content.isDirectPublication(command.fields)))||!TYPES.includes(command.fields.type))fail('Choose a configured business area and content type.','INVALID_MAPPING');
         doc=W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:new Date().toISOString(),requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,create:true}});
         statePreflight(doc,ctx.dir.people);await Renderer.collectMedia(doc,W.currentVersion(doc),{media:{}});
-        await assignments(doc,ctx.dir.people,signal);
+        if(!Content.isDirectPublication(doc))await assignments(doc,ctx.dir.people,signal);
         p=await createPage('WCSpedia working '+documentKey,documentKey,'working',requestId,signal);state=await readState(p,signal);
       }else{
         var entry=(session.data.documents||[]).find(function(d){return d.id===documentKey;});if(!entry||!entry.confluencePageId)fail('Reload the document workspace before saving.','NOT_FOUND');p=await page(entry.confluencePageId,signal,workingId);state=await readState(p,signal);doc=state.document;if(!doc)fail('The working document metadata is unavailable.','INVALID_DATA');ctx.dir=directory(ctx.catalog,ctx.policy,ctx.user,state.people);actor=ctx.dir.actor;
@@ -4352,8 +4395,15 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var permissionContext={actorId:actor.id,documentId:documentKey,create:creating,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')};
       doc=creating?W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,permissionContext:permissionContext}):W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,effectiveAt:j.at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,comment:command.comment,permissionContext:permissionContext,requireGovernance:true});
       if(!op(p,'update'))fail('Confluence no longer permits this working-page action.','FORBIDDEN');
-      var users=await assignments(doc,ctx.dir.people,signal);
-      if(creating)await restrictUpdate(p,users,signal);
+      // Insights uses ordinary native create/edit access, like the earlier blog
+      // publisher. Only the approval workflow provisions assigned editors.
+      // Keep existing restrictions untouched; never retry a denial by removing them.
+      var direct=Content.isDirectPublication(doc),users=direct?[]:await assignments(doc,ctx.dir.people,signal);
+      // Existing drafts may predate automatic assignment or have had native
+      // access changed. Reconcile before handing work to the reviewer and when
+      // opening a new revision, as well as on initial creation. Restriction
+      // failures must stop before the transitioned body/state is persisted.
+      if(!direct&&['create','submit','revise'].includes(command.action))await restrictUpdate(p,users,signal);
       var media=await stageMedia(doc,p,state.media||{},p.id,signal);doc._people=j.people||ctx.dir.people;
       if(marked(p,'wcs-operation-'+requestId)?p.version.number!==j.expectedNativeVersion+1:p.version.number!==j.expectedNativeVersion)fail('The native working page changed during this operation.','CONFLICT');
       if(command.action!=='delete')p=await bodyWrite(p,doc,media,'working',requestId,workingId,signal);
@@ -4362,8 +4412,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if(publishedId){published=await page(publishedId,signal);if(parent(published)!==dest.id&&parent(published)!==workingId&&!(Content.isDirectPublication(doc)&&parent(published)===journal.value.priorPublishedParentId))fail('The published page was moved.','PAGE_SCOPE');if(!marked(published,'wcs-document-'+documentKey))fail('The published document identity changed.','PAGE_SCOPE');if(!op(published,'update'))fail('Confluence does not permit updating the published page.','FORBIDDEN');if(doc.publishedConfluencePageId&&!j.expectedPublishedVersion&&!journal.value.expectedPublishedVersion&&published.version.number!==doc.publishedConfluencePageVersion)fail('The published page changed outside this workflow. Reconcile its native history before approving.','CONFLICT');}
         else{if(!ctx.bounds.canCreate)fail('Publishing needs your Confluence space Add page permission.','FORBIDDEN');published=await createPage('WCSpedia publication '+documentKey,documentKey,'published',requestId,signal);await checkpoint({publishedPageId:published.id,expectedPublishedVersion:published.version.number,stage:'publication-created'});}
         if(!j.expectedPublishedVersion&&!journal.value.expectedPublishedVersion)await checkpoint({publishedPageId:published.id,expectedPublishedVersion:published.version.number,stage:'publication-prepared'});
-        var approver=users.find(function(u){return E.normalizeSOEID(u.username)===who.soeid;});if(!approver)fail('Only an assigned publisher can publish.','FORBIDDEN');
-        await restrictUpdate(published,[approver],signal);
+        if(!op(published,'update'))fail('Confluence does not permit updating the published page.','FORBIDDEN');
+        if(!direct){
+          var approver=users.find(function(u){return E.normalizeSOEID(u.username)===who.soeid;});if(!approver)fail('Only an assigned publisher can publish.','FORBIDDEN');
+          await restrictUpdate(published,[approver],signal);
+        }
         var publishedMedia=await stageMedia(doc,published,{},p.id,signal);
         if(marked(published,'wcs-operation-'+requestId)?published.version.number!==journal.value.expectedPublishedVersion+1:published.version.number!==journal.value.expectedPublishedVersion)fail('The published page changed during approval.','CONFLICT');
         published=await bodyWrite(published,doc,publishedMedia,'published',requestId,String(dest.id),signal);
@@ -7949,7 +8002,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(!serviceReady(options)){options.notify(unavailableMessage,{type:'warning'});return;}
       const row=policy.records.find(r=>r.id===id),edit=action==='edit',revoke=action==='revoke';if(action!=='add'&&!row)return;
       const checks=global.WCSEntitlements.PERMISSIONS.map(p=>'<label class="entitlement-permission"><input type="checkbox" name="permission" value="'+p+'" '+(row?.permissions.includes(p)?'checked':'')+'><span>'+esc(names[p])+'</span></label>').join('');
-      const body='<form novalidate data-entitlement-form><p class="workflow-dialog-description">'+(revoke?'Remove this access record for '+esc(row.soeid)+'. The change remains in the audit history.':'Grant only the access this colleague needs. Their Confluence permissions must also allow the action.')+'</p><div class="form-error" role="alert" hidden></div>'+(!revoke?'<div class="form-row"><div class="form-group"><label for="access-soeid">SOEID</label><input id="access-soeid" name="soeid" required maxlength="32" pattern="[A-Za-z0-9]{2,32}" value="'+esc(row?.soeid||'')+'" '+(edit?'readonly':'')+' placeholder="For example, AB12345"></div><div class="form-group"><label for="access-name">Display name</label><input id="access-name" name="displayName" required maxlength="150" value="'+esc(row?.displayName||'')+'"></div></div><div class="form-group"><label for="access-scope">Scope</label><select id="access-scope" name="scope" '+(edit?'disabled':'')+'><option value="*">All documents</option>'+options.documents.filter(d=>!d.deletedAt).concat(row?.scope!=='*'&&row?.scope&&!options.documents.some(d=>!d.deletedAt&&d.id===row.scope)?[{id:row.scope,versions:[{title:'Document not in the loaded directory'}]}]:[]).map(d=>'<option value="'+esc(d.id)+'" '+(row?.scope===d.id?'selected':'')+'>'+esc(d.versions.at(-1).title)+' · '+esc(d.id)+'</option>').join('')+'</select><small class="quiet-note">Use a specific document for edit/delete access. Creation and entitlement administration apply globally.</small></div><fieldset class="entitlement-permissions"><legend>Permissions</legend>'+checks+'</fieldset><label class="entitlement-permission"><input type="checkbox" name="active" '+(row?.active!==false?'checked':'')+'>Active access</label>':'')+'<div class="form-group"><label for="access-reason">Reason for this change</label><textarea id="access-reason" name="comment" required maxlength="2000" rows="3" placeholder="Explain why this access is needed or being changed."></textarea></div><div class="modal-actions"><button type="button" class="button secondary" data-entitlement-cancel>Cancel</button><button type="submit" class="button '+(revoke?'danger':'')+'">'+(revoke?'Revoke access':edit?'Save changes':'Add entitlement')+'</button></div></form>';
+      const body='<form novalidate data-entitlement-form><p class="workflow-dialog-description">'+(revoke?'Remove this access record for '+esc(row.soeid)+'. The change remains in the audit history.':'Grant only the access this colleague needs. Their Confluence permissions must also allow the action.')+'</p><div class="form-error" role="alert" hidden></div>'+(!revoke?'<div class="form-row"><div class="form-group"><label for="access-soeid">SOEID</label><input id="access-soeid" name="soeid" required maxlength="32" pattern="[A-Za-z0-9]{2,32}" value="'+esc(row?.soeid||'')+'" '+(edit?'readonly':'')+' placeholder="For example, AB12345"></div><div class="form-group"><label for="access-name">Display name</label><input id="access-name" name="displayName" required maxlength="150" value="'+esc(row?.displayName||'')+'"></div></div><div class="form-group"><label for="access-scope">Scope</label><select id="access-scope" name="scope" '+(edit?'disabled':'')+'><option value="*">All documents</option>'+options.documents.filter(d=>!d.deletedAt).concat(row?.scope!=='*'&&row?.scope&&!options.documents.some(d=>!d.deletedAt&&d.id===row.scope)?[{id:row.scope,versions:[{title:'Document not in the loaded directory'}]}]:[]).map(d=>'<option value="'+esc(d.id)+'" '+(row?.scope===d.id?'selected':'')+'>'+esc(d.versions.at(-1).title)+' · '+esc(d.id)+'</option>').join('')+'</select><small class="quiet-note">Use a specific document for edit/delete access. Creation and entitlement administration apply globally.</small></div><fieldset class="entitlement-permissions"><legend>Permissions</legend><div class="entitlement-permission-grid">'+checks+'</div></fieldset><label class="entitlement-permission"><input type="checkbox" name="active" '+(row?.active!==false?'checked':'')+'>Active access</label>':'')+'<div class="form-group"><label for="access-reason">Reason for this change</label><textarea id="access-reason" name="comment" required maxlength="2000" rows="3" placeholder="Explain why this access is needed or being changed."></textarea></div><div class="modal-actions"><button type="button" class="button secondary" data-entitlement-cancel>Cancel</button><button type="submit" class="button '+(revoke?'danger':'')+'">'+(revoke?'Revoke access':edit?'Save changes':'Add entitlement')+'</button></div></form>';
       modal=global.WCSUI.dialog({title:revoke?'Revoke access':edit?'Edit entitlement':'Add entitlement',body,onClose(){if(busy)return false;modal=null;},onMount(handle){
         const form=handle.element.querySelector('form');let reloadRequired=false;handle.element.querySelector('[data-entitlement-cancel]').onclick=()=>handle.close();
         form.addEventListener('submit',async event=>{event.preventDefault();event.stopPropagation();if(busy||reloadRequired)return;const error=form.querySelector('.form-error');
@@ -9278,5 +9331,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['saved'] = { version: 'b06ac5956f6f' };
+  modules['saved'] = { version: '8352ba093681' };
 })();

@@ -60,6 +60,32 @@ The helper cancels file drag/drop gestures on WCSpedia pages that load this head
 
 CSS in Look and Feel cannot reliably disable JavaScript upload handlers. This helper is a browser interaction guard, not a native permission rule. A native editor/attachment screen that does not load navBar, a separate iframe, or a handler that already ran earlier on window capture is outside its protection. With space-only access we cannot guarantee a site-wide ban. Verify a file drag over a native child article and the custom editor on the internal instance; there should be no upload request or new attachment. Explicit uploads should still work. The built-in Confluence editor must be checked separately for whether it includes the header.
 
+## Job aid restriction errors and recovery
+
+Job aid restriction writes use `/confluence/rest/api/content/{pageId}/restriction`, with the documented `type` and native `username` fields for each editor. Expanded user response fields are not copied into that write. Existing viewing restrictions are omitted from the update and verified afterward; the native API preserves omitted operations. **Insights publishing no longer performs restriction writes at all.** Blogs, Guides, Training and Reports use native create/edit access without reviewer/manager assignment lookups. Existing restrictions are left intact, and actual native permission denials still stop a save.
+
+A native HTTP 400 now includes a short JSON validation message when Confluence supplies one. HTML error pages, stack traces, oversized responses and unreadable error bodies are not displayed. If rejected, publication stops; the same request can be reconciled using the existing save recovery flow without creating another document. This compatibility change does not establish the cause of a specific internal-server rejection. If it persists, capture the failed request's full URL and Response in the browser Network tab (omit tokens/cookies). A URL missing `/content/` does not match this package.
+
+Replace the runtime attachments and matching page HTML from this package, keep live JSON, and hard-refresh the page so the updated scripts load. Do not manually remove the private Working page or its unfinished request record while recovering a save.
+
+The current editor and private Working history remain in place. Insights avoids restriction writes; Job aids still verify their assigned editors before saving/publishing. Copy any unsaved MDX before refreshing an open editor. If the original request is still available in that editor, its recovery path reuses the prepared pages instead of duplicating them. A local recovery test does not establish that an earlier request survives closing/reloading a browser tab.
+
+### Job aids: automatic reviewer access
+
+Normal use does not require manual per-document restriction changes. The app resolves the assigned author, reviewer and approving manager to native Confluence usernames, applies their individual editing restrictions on creation, and verifies them again on **Submit for review** and **Start revision**. Existing author-only drafts are reconciled automatically while an authorized editor performs these actions. Matching restrictions are reused. Publication still applies the approving manager's editing restriction before publishing. A failed restriction step does not advance the saved workflow status; the original command remains available for recovery in the open editor. Insights does not use this workflow.
+
+One-time native setup: the space owner must give authors/managers who perform restriction writes native page-edit access and **Restrict** (or space Admin) permission, plus the Add page/Add attachments permissions already required. Assigned reviewers need native space access and access through Working's viewing restrictions. Use existing departmental Confluence groups if available; this package does not create directory groups or grant itself permissions. JSON entitlements remain additional application policy. Native restriction reads succeeding does not establish write permission. If the instance rejects the documented PUT despite correct native permissions, its actual response still needs diagnosis; automatic code cannot override that rejection.
+
+The manual procedure below is an exceptional recovery option, not the normal publishing process.
+
+### Job aids: native restriction recovery
+
+The app now reads and verifies the existing individual editing restrictions before writing. If they exactly match the required editors and contain no groups, no PUT is needed. Extra users, groups, incomplete lists and changed verification results are not accepted. Viewing restrictions remain unchanged. Rejections identify the page ID, step and required native usernames; HTTP 400/403/404/405 restriction failures keep the editor's original fields/request available through **Check save**.
+
+If a restriction PUT is rejected, keep the editor open. A space owner can open the page identified by the error in another tab and set **editing** restrictions to exactly the listed individual editors using Confluence's native Restrictions dialog. A working Job aid needs its author, reviewer and approving manager; its publication page needs the assigned approving manager. Do not change viewing restrictions, move the prepared page or delete its recovery metadata. Then use **Check save** in the original editor. The complete permission, identity, version and approval checks still run. If the REST read endpoint is unavailable, the app cannot verify this correction and will stop.
+
+For diagnosis, open `/confluence/rest/api/content/<pageId>/restriction/byOperation/update?expand=restrictions.user,restrictions.group` while signed in. This is a read-only restriction GET; opening `/restriction` directly in the address bar does not test its PUT operation. A successful `/content/<pageId>` GET proves only that the page can be read. An account unable to save restrictions through the native dialog needs help from its space owner; JSON entitlements cannot grant native permissions. Preserve unsaved MDX before installing updated scripts. Original-request recovery is supported while the editor retains the command, not guaranteed across a full browser reload.
+
 ## Configured page IDs
 
 Space key: `wcspedia`. Context: `/confluence`. Attachment page: `3962195316`.
