@@ -1,0 +1,26 @@
+ORG CHART HIDE / SHOW UPDATE (v17)
+
+Generated cards and connectors are floating shapes. Hiding columns does not
+hide these objects. This update adds Hide tree / Show tree beside All managers.
+The diagram is hidden without deleting it. Controls, filters and the section
+heading remain available. Other charts, KPIs and formulas are unchanged.
+Refresh preserves the hidden choice. Save the workbook to persist that choice.
+Showing the tree reveals the last snapshot; use Refresh for current data.
+
+UPDATE AN EXISTING v16 INSTALLATION
+1. Save a backup of your .xlsm workbook.
+2. Alt+F11: select its project and remove only WCHOrgTree.
+3. File > Import File: import this updated WCHOrgTree.bas.
+   Keep the existing WCHOrgEvents class (included here unchanged).
+4. Debug > Compile VBAProject.
+5. Return to Excel, Alt+F8 > WCHOrgHide > Run.
+   This hides the existing generated tree and adds the Show tree button.
+   There is no need to rerun setup or rebuild the tree to hide it.
+6. Save. Use Show tree / Hide tree beside All managers from now on.
+
+If the org columns are already hidden, unhide them to access the button or use
+Alt+F8 > WCHOrgShow / WCHOrgHide directly. Showing shapes does not unhide columns.
+For a first installation import both files into your .xlsm and run WCHOrgStart.
+
+VBA grammar checked; Microsoft Excel compile/runtime not available locally.
+No source-data scans, worksheet calculation or tree rebuild occurs on hide/show.

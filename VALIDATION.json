@@ -1,0 +1,10 @@
+{
+  "grammar_errors": {
+    "WCHOrgTree.bas": [],
+    "WCHOrgEvents.cls": []
+  },
+  "excel_runtime_tested": false,
+  "refresh_preserves_visibility_source_check": true,
+  "setup_preserves_visibility_source_check": true,
+  "scope": "Only prefixed node_ and line_ shapes; controls retained"
+}
