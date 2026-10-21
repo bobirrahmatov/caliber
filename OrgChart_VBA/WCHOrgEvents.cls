@@ -15,10 +15,5 @@ Private Sub Host_SheetChange(ByVal Sh As Object, ByVal Target As Excel.Range)
     WCHOrgChanged Sh, Target
 End Sub
 
-Private Sub Host_AfterCalculate()
-    WCHOrgAfterCalculate
-End Sub
-
-Private Sub Host_WorkbookActivate(ByVal Wb As Excel.Workbook)
-    If Wb Is ThisWorkbook Then WCHOrgAfterCalculate
-End Sub
+' No AfterCalculate, SheetCalculate or WorkbookActivate hook.
+' Filters only mark the existing diagram stale; drawing is button-only.

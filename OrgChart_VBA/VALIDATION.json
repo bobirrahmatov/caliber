@@ -5,12 +5,12 @@
       {
         "file": "WCHOrgTree.bas",
         "grammar_errors": [],
-        "procedures": 31
+        "procedures": 32
       },
       {
         "file": "WCHOrgEvents.cls",
         "grammar_errors": [],
-        "procedures": 3
+        "procedures": 1
       }
     ]
   },
@@ -69,11 +69,53 @@
     ],
     "scopeClosureCases": 2
   },
+  "performance": {
+    "method": "Static procedure-reachability assertions over actual VBA source; no desktop Excel timing",
+    "event_paths": [
+      {
+        "entry": "WCHOrgChanged",
+        "reachable": [
+          "WCHOrgChanged",
+          "WCHOrgMarkStale"
+        ],
+        "source_scans": 0,
+        "forced_calculations": 0,
+        "worksheet_writes": 0,
+        "tree_redraws": 0
+      },
+      {
+        "entry": "Auto_Open",
+        "reachable": [
+          "Auto_Open",
+          "WCHOrgConnect",
+          "WCHOrgMarkStale"
+        ],
+        "source_scans": 0,
+        "forced_calculations": 0,
+        "worksheet_writes": 0,
+        "tree_redraws": 0
+      },
+      {
+        "entry": "WCHOrgAfterCalculate",
+        "reachable": [
+          "WCHOrgAfterCalculate"
+        ],
+        "source_scans": 0,
+        "forced_calculations": 0,
+        "worksheet_writes": 0,
+        "tree_redraws": 0
+      }
+    ],
+    "button_only_rebuild": true,
+    "manager_choice_cache": true,
+    "formula_changes": false,
+    "excel_runtime_tested": false
+  },
   "excel_vba_compiled": false,
   "excel_runtime_tested": false,
   "files": {
-    "WCHOrgEvents.cls": "abb35e5bbb5acebf4bb5f6f7508987269cd00e0bee3d0ada6195e9fd6a52e8da",
-    "INSTALL.txt": "fd303b841b2a004de9c51ed18f9843cbb2127dd9fd0619fe5c9ebfce63431b1b",
-    "WCHOrgTree.bas": "de216a8864984a42b75e3502d07416c942b6bf9878963414418f7ccc53d74bb8"
+    "WCHOrgEvents.cls": "9d5196bdb1117391cf54feff516c4421a9b7bc1c0444ef876451f88767f73a8c",
+    "INSTALL.txt": "5a5b35e2618a667d61749836195fb36464585ab83de3bc5cf8c38ba9e4fa507b",
+    "WCHOrgTree.bas": "613e351b333adb7484a286f3e89791dcc58c155d24664adfa37af8099eeaf5c3"
   }
 }

@@ -1,11 +1,24 @@
-WEALTH CALIBRATION HUB - ORG CHART ONLY VBA EXTENSION
+WEALTH CALIBRATION HUB - BUTTON-ONLY ORG CHART PERFORMANCE UPDATE (v16)
 
 Use this with the v14 native workbook containing Dashboard, Calculations and
 your WCM Calibration Final sheet. The two imported files replace the paged
 org panel when first run. They do not rewrite source data, KPI formulas,
 calibration formulas or the six native chart series.
 
-ONE-TIME INSTALLATION IN DESKTOP EXCEL
+UPDATING YOUR EXISTING VBA INSTALLATION
+1. Save a backup copy of the .xlsm workbook.
+2. Alt+F11. In this workbook's VBA project, remove WCHOrgTree and WCHOrgEvents.
+   Do not remove other modules. This replaces the two previous org-only files.
+3. Import BOTH updated files from this package using File > Import File.
+4. Debug > Compile VBAProject. Then Alt+F8 > WCHOrgStart > Run.
+5. Save, close and reopen the workbook to release the old event handler.
+6. Change the filters as needed. Click Refresh org chart when ready to draw it.
+
+The setup installs the button but does not draw the tree. Only the refresh
+button (or explicitly running WCHOrgRefresh) builds it. Do not import duplicate
+modules beside the old ones: the old calculation events must be removed.
+
+FIRST INSTALLATION IN DESKTOP EXCEL
 1. Save a copy of your v14 workbook as Excel Macro-Enabled Workbook (*.xlsm).
 2. Press Alt+F11 to open the Visual Basic Editor.
 3. In Project Explorer, select that workbook's VBA project.
@@ -13,7 +26,7 @@ ONE-TIME INSTALLATION IN DESKTOP EXCEL
    Import the files; do not paste their exported headers into a code window.
    Both files are required. No additional library/reference is required.
 5. Debug > Compile VBAProject. Then return to Excel.
-6. Alt+F8 > WCHOrgStart > Run. Save the .xlsm workbook.
+6. Alt+F8 > WCHOrgStart > Run. Save the .xlsm workbook. Click Refresh org chart.
 
 Start from the v14 native workbook, not an older VBA dashboard. If you have
 already installed this org extension, replace its two modules rather than
@@ -21,16 +34,32 @@ importing a second copy. Keep unrelated macros. If your project already has
 an Auto_Open procedure, merge its startup action by calling WCHOrgStart once
 instead of adding a duplicate Auto_Open procedure.
 
-AUTOMATIC OPERATION
+BUTTON-ONLY OPERATION
 With macros and events enabled, Auto_Open attaches the event handler when
 the workbook opens. WCHOrgStart reconnects it after a VBA reset or if Excel
 was opened without running startup macros.
 
-The org chart updates when Product (B7), Manager (N7), Below direct (AF7),
-or raw source A:P changes. AfterCalculate also detects changes to formula
-results, including What in K. A signature prevents unnecessary redrawing.
-Refresh org chart is available for a manual refresh or after replacing a sheet.
-The handler preserves the original event and screen-update settings.
+Filter changes DO NOT redraw the tree, scan the source or explicitly recalculate
+worksheets. They mark the org chart as a snapshot using a small status text box,
+which does not write a cell or trigger another formula calculation. Repeated
+changes while already marked stale do no further org work.
+
+There is no AfterCalculate, SheetCalculate or WorkbookActivate event handler.
+The full source/hierarchy signature scan has been removed. The old public
+WCHOrgAfterCalculate procedure is intentionally a no-op for compatibility.
+Opening the workbook only connects the lightweight handler; it never builds
+the tree automatically.
+
+Click Refresh org chart after changes to filters, source data or formula inputs.
+The existing tree stays visible as a snapshot until refreshed. Ordinary dashboard
+charts and KPIs continue to use Excel's normal automatic calculation. Refresh
+avoids redundant sheet calculations if Excel is already up to date in Automatic
+mode. If it is in Manual mode or has pending work, the button calculates the
+dependent sheets before drawing. It preserves the original calculation mode,
+event settings and screen-update settings.
+
+During a refresh, manager choices are read once into memory, rather than
+rereading two 502-cell ranges for each node. Leaf cards skip manager lookup.
 
 Manager/Below direct still use the existing valid dropdown choices. If a
 previous lower filter becomes invalid after a higher filter changes, choose
@@ -38,7 +67,8 @@ All or a current choice; the org chart displays that instruction instead of
 showing stale people. Clicking a manager card updates Manager and resets
 Below direct to All, so the other dashboard views follow the selected branch.
 Up returns one level, or clears Below direct first. All managers retains the
-current Product selection.
+current Product selection. These actions change the filters only; click Refresh
+org chart to redraw for the new selection.
 
 LAYOUT AND DATA
 - One connected org chart; no org page control and no six-person limit.
@@ -63,6 +93,8 @@ LAYOUT AND DATA
 
 WHAT WAS CHECKED
 Both exported source files passed an ANTLR VBA syntax-parser check.
+Event-path checks confirm that filters, source edits and workbook startup cannot
+reach drawing, source scans, worksheet calculation or worksheet value writes.
 An independent execution model checked layout non-overlap for 8 directs,
 4 directs plus 5 sub-directs, 500 directs, 20 reporting levels, four branches
 with five children each, long captions, an empty population and scope closure.
@@ -71,9 +103,15 @@ Desktop Excel was unavailable in the authoring environment. The actual VBA
 compiler, Office shape rendering and your private workbook remain unverified.
 Use Debug > Compile VBAProject during installation before the first run.
 
+The native workbook's existing formulas are unchanged. In particular, INDIRECT
+references preserve the ability to copy the entire source sheet. Those volatile
+formulas can still cause calculation delay; this patch removes the identified VBA
+overhead, not all possible workbook calculation costs. No Excel timing result is
+claimed. Keep Calculation Options on Automatic for live dashboard results.
+
 This package contains VBA source, not a pre-installed .xlsm. Saving or renaming
 an .xlsx file alone does not install the code. The import steps above are needed.
 
 References:
-https://learn.microsoft.com/en-us/office/vba/api/excel.application.aftercalculate
+https://learn.microsoft.com/en-us/office/vba/excel/concepts/excel-performance/excel-tips-for-optimizing-performance-obstructions
 https://learn.microsoft.com/en-us/office/troubleshoot/excel/create-application-level-event-handler

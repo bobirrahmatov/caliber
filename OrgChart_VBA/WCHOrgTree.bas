@@ -37,14 +37,16 @@ End Type
 Private people() As OrgPerson
 Private personCount As Long
 Private rootIndex As Long
-Private lastSignature As String
 Private nextShape As Long
 Private canvasReady As Boolean
+Private orgStale As Boolean
+Private managerKeys As Variant
+Private managerLabels As Variant
 Public WCHOrgBusy As Boolean
 Public WCHOrgListener As WCHOrgEvents
 
 Public Sub Auto_Open()
-    WCHOrgStart
+    WCHOrgConnect
 End Sub
 
 Public Sub Auto_Close()
@@ -52,19 +54,42 @@ Public Sub Auto_Close()
 End Sub
 
 Public Sub WCHOrgStart()
+    Dim d As Worksheet
+    Dim oldEvents As Boolean, oldScreen As Boolean
+    oldEvents = Application.EnableEvents
+    oldScreen = Application.ScreenUpdating
+    On Error GoTo Failed
+    WCHOrgBusy = True
+    Application.EnableEvents = False
+    Application.ScreenUpdating = False
+    Set d = ThisWorkbook.Worksheets("Dashboard")
+    PrepareCanvas d
+    Application.EnableEvents = oldEvents
+    Application.ScreenUpdating = oldScreen
+    WCHOrgBusy = False
+    WCHOrgConnect
+    Exit Sub
+Failed:
+    Application.EnableEvents = oldEvents
+    Application.ScreenUpdating = oldScreen
+    WCHOrgBusy = False
+    MsgBox "Org chart setup could not finish: " & Err.Description, vbExclamation
+End Sub
+
+Private Sub WCHOrgConnect()
     Set WCHOrgListener = New WCHOrgEvents
     Set WCHOrgListener.Host = Application
-    WCHOrgRefresh
+    orgStale = False
+    WCHOrgMarkStale
 End Sub
 
 Public Sub WCHOrgRefresh()
-    WCHOrgUpdate True, True
+    WCHOrgUpdate
 End Sub
 
 Public Sub WCHOrgAfterCalculate()
-    If WCHOrgBusy Then Exit Sub
-    If Application.CalculationState <> xlDone Then Exit Sub
-    WCHOrgUpdate False, False
+    ' Compatibility with the previous event class: deliberately no work.
+    ' No data scans or drawing from calculation/activation events.
 End Sub
 
 Public Sub WCHOrgChanged(ByVal Sh As Object, ByVal Target As Range)
@@ -72,19 +97,33 @@ Public Sub WCHOrgChanged(ByVal Sh As Object, ByVal Target As Range)
     If Not (Sh.Parent Is ThisWorkbook) Then Exit Sub
     If Sh.Name = "Dashboard" Then
         If Not Application.Intersect(Target, Sh.Range("B7,N7,AF7")) Is Nothing Then
-            WCHOrgRefresh
+            WCHOrgMarkStale
         End If
     ElseIf Sh.Name = "WCM Calibration Final" Then
         If Not Application.Intersect(Target, Sh.Range("A11:P2000")) Is Nothing Then
-            WCHOrgRefresh
+            WCHOrgMarkStale
         End If
     End If
 End Sub
 
-Private Sub WCHOrgUpdate(ByVal forceRefresh As Boolean, ByVal recalculateFirst As Boolean)
+Private Sub WCHOrgMarkStale()
+    Dim d As Worksheet
+    If orgStale Then Exit Sub
+    orgStale = True
+    managerKeys = Empty
+    managerLabels = Empty
+    On Error Resume Next
+    Set d = ThisWorkbook.Worksheets("Dashboard")
+    ' Updating a shape does not dirty workbook formulas, unlike writing a cell.
+    d.Shapes(PREFIX & "ui_status").TextFrame2.TextRange.Text = _
+        "Org chart is a snapshot. Click Refresh org chart to show the current filters and ratings."
+    On Error GoTo 0
+End Sub
+
+Private Sub WCHOrgUpdate()
     Dim d As Worksheet, c As Worksheet, raw As Worksheet
     Dim oldEvents As Boolean, oldScreen As Boolean
-    Dim sig As String, reason As String, errText As String
+    Dim reason As String, errText As String
     Dim i As Long, scopeCount As Long, contextCount As Long
     If WCHOrgBusy Then Exit Sub
     WCHOrgBusy = True
@@ -97,13 +136,14 @@ Private Sub WCHOrgUpdate(ByVal forceRefresh As Boolean, ByVal recalculateFirst A
     On Error Resume Next
     Set raw = ThisWorkbook.Worksheets("WCM Calibration Final")
     On Error GoTo Failed
-    If recalculateFirst Then
+    ' Automatic mode already updates the dashboard. Do not repeat three full
+    ' sheet calculations after every filter. Explicit refresh in Manual mode
+    ' calculates the dependent sheets, without changing the global mode.
+    If Application.Calculation <> xlCalculationAutomatic Or Application.CalculationState <> xlDone Then
         If Not raw Is Nothing Then raw.Calculate
         c.Calculate
         d.Calculate
     End If
-    sig = SignatureOf(c, raw)
-    If Not forceRefresh And sig = lastSignature And canvasReady Then GoTo Finished
     Application.ScreenUpdating = False
     PrepareCanvas d
     If raw Is Nothing Then
@@ -115,7 +155,7 @@ Private Sub WCHOrgUpdate(ByVal forceRefresh As Boolean, ByVal recalculateFirst A
     End If
     If Len(reason) > 0 Then
         ShowStatus d, reason
-        lastSignature = sig
+        orgStale = True
         GoTo Finished
     End If
     LoadPeople c, raw
@@ -146,8 +186,9 @@ Private Sub WCHOrgUpdate(ByVal forceRefresh As Boolean, ByVal recalculateFirst A
         If people(i).Included Then DrawPerson d, i
     Next i
     ShowStatus d, CStr(scopeCount) & " employee records in scope. " & CStr(contextCount) & _
-        " roster managers shown for context. All reporting levels; scroll to explore. Click a manager card to focus."
-    lastSignature = sig
+        " roster managers shown for context. Snapshot " & Format$(Now, "hh:nn:ss") & _
+        ". Refresh after changing filters or data."
+    orgStale = False
 Finished:
     Application.EnableEvents = oldEvents
     Application.ScreenUpdating = oldScreen
@@ -160,11 +201,11 @@ Failed:
         DeleteTreeShapes d
         ShowStatus d, "Org chart unavailable: " & errText & " Use Refresh org chart after correcting the source."
     End If
-    lastSignature = vbNullString
+    orgStale = True
     Application.EnableEvents = oldEvents
     Application.ScreenUpdating = oldScreen
     WCHOrgBusy = False
-    If forceRefresh Then MsgBox "The org chart could not update: " & errText, vbExclamation, "Wealth Calibration Hub"
+    MsgBox "The org chart could not update: " & errText, vbExclamation, "Wealth Calibration Hub"
 End Sub
 
 Private Function SafeText(ByVal v As Variant) As String
@@ -175,38 +216,6 @@ Private Function SafeText(ByVal v As Variant) As String
     Else
         SafeText = Trim$(CStr(v))
     End If
-End Function
-
-Private Function SignatureOf(ByVal c As Worksheet, ByVal raw As Worksheet) As String
-    Dim result As String, v As Variant, r As Long, j As Long, s As String
-    result = SafeText(c.Range("EL2").Value2) & "/" & SafeText(c.Range("AG8").Value2)
-    result = result & "/" & SafeText(c.Range("EF2").Value2) & "/" & SafeText(c.Range("EF3").Value2)
-    result = result & "/" & SafeText(ThisWorkbook.Worksheets("Dashboard").Range("B7").Value2)
-    If Not raw Is Nothing Then
-        v = raw.Range("A12:P2000").Value2
-        For r = 1 To UBound(v, 1)
-            For j = 1 To 16
-                s = SafeText(v(r, j))
-                result = result & CStr(Len(s)) & ":" & s
-            Next j
-        Next r
-    End If
-    ' Includes formula-derived scope and normalized hierarchy keys.
-    v = c.Range("HE13:HL512").Value2
-    For r = 1 To UBound(v, 1)
-        For j = 1 To UBound(v, 2)
-            s = SafeText(v(r, j))
-            result = result & CStr(Len(s)) & ":" & s
-        Next j
-    Next r
-    v = c.Range("BN13:BP512").Value2
-    For r = 1 To UBound(v, 1)
-        For j = 1 To UBound(v, 2)
-            s = SafeText(v(r, j))
-            result = result & CStr(Len(s)) & ":" & s
-        Next j
-    Next r
-    SignatureOf = result
 End Function
 
 Private Function AddPerson(ByVal key As String, ByVal personName As String) As Long
@@ -242,6 +251,8 @@ Private Sub LoadPeople(ByVal c As Worksheet, ByVal raw As Worksheet)
     Dim helpers As Variant, indexes As Variant, scopes As Variant, data As Variant
     ReDim people(1 To MAX_NODES)
     personCount = 0
+    managerKeys = c.Range("DQ11:DQ512").Value2
+    managerLabels = c.Range("DB11:DB512").Value2
     helpers = c.Range("HE13:HL512").Value2
     indexes = c.Range("EM13:EM512").Value2
     scopes = c.Range("BN13:BP512").Value2
@@ -509,8 +520,8 @@ Private Sub DrawPerson(ByVal d As Worksheet, ByVal n As Long)
         .TextRange.Characters(1, firstLength).Font.Bold = msoTrue
         .TextRange.Characters(1, firstLength).Font.Size = 12
     End With
-    If people(n).ChildCount > 0 And ManagerLabel(people(n).Key) <> vbNullString Then
-        s.OnAction = MacroName("WCHOrgFocus")
+    If people(n).ChildCount > 0 Then
+        If ManagerLabel(people(n).Key) <> vbNullString Then s.OnAction = MacroName("WCHOrgFocus")
     End If
 End Sub
 
@@ -519,14 +530,16 @@ Private Function MacroName(ByVal procedure As String) As String
 End Function
 
 Private Function ManagerLabel(ByVal key As String) As String
-    Dim keys As Variant, labels As Variant, i As Long
-    With ThisWorkbook.Worksheets("Calculations")
-        keys = .Range("DQ11:DQ512").Value2
-        labels = .Range("DB11:DB512").Value2
-    End With
-    For i = 1 To UBound(keys, 1)
-        If StrComp(SafeText(keys(i, 1)), key, vbTextCompare) = 0 Then
-            ManagerLabel = SafeText(labels(i, 1))
+    Dim i As Long
+    If Not IsArray(managerKeys) Then
+        With ThisWorkbook.Worksheets("Calculations")
+            managerKeys = .Range("DQ11:DQ512").Value2
+            managerLabels = .Range("DB11:DB512").Value2
+        End With
+    End If
+    For i = 1 To UBound(managerKeys, 1)
+        If StrComp(SafeText(managerKeys(i, 1)), key, vbTextCompare) = 0 Then
+            ManagerLabel = SafeText(managerLabels(i, 1))
             Exit Function
         End If
     Next i
@@ -535,6 +548,7 @@ End Function
 Public Sub WCHOrgFocus()
     Dim key As String, label As String
     On Error GoTo Failed
+    managerKeys = Empty
     key = ThisWorkbook.Worksheets("Dashboard").Shapes(CStr(Application.Caller)).AlternativeText
     label = ManagerLabel(key)
     If Len(label) = 0 Then Exit Sub
@@ -550,11 +564,11 @@ Private Sub SelectManager(ByVal label As String)
     On Error GoTo Failed
     Application.EnableEvents = False
     With ThisWorkbook.Worksheets("Dashboard")
-        .Range("N7").Value2 = label
-        .Range("AF7").Value2 = "All"
+        If SafeText(.Range("AF7").Value2) <> "All" Then .Range("AF7").Value2 = "All"
+        If SafeText(.Range("N7").Value2) <> label Then .Range("N7").Value2 = label
     End With
     Application.EnableEvents = oldEvents
-    WCHOrgRefresh
+    WCHOrgMarkStale
     Exit Sub
 Failed:
     Application.EnableEvents = oldEvents
@@ -568,6 +582,7 @@ End Sub
 Public Sub WCHOrgUp()
     Dim c As Worksheet, d As Worksheet, key As String, label As String, i As Long
     Set c = ThisWorkbook.Worksheets("Calculations")
+    managerKeys = Empty
     Set d = ThisWorkbook.Worksheets("Dashboard")
     If SafeText(d.Range("AF7").Value2) <> "All" Then
         d.Range("AF7").Value2 = "All"
@@ -588,14 +603,14 @@ Private Sub DeleteTreeShapes(ByVal d As Worksheet)
     Dim i As Long, name As String
     For i = d.Shapes.Count To 1 Step -1
         name = d.Shapes(i).Name
-        If Left$(name, Len(PREFIX)) = PREFIX Then
-            If InStr(1, name, "button_", vbBinaryCompare) = 0 Then d.Shapes(i).Delete
-        End If
+        If Left$(name, Len(PREFIX) + 5) = PREFIX & "node_" Or _
+           Left$(name, Len(PREFIX) + 5) = PREFIX & "line_" Then d.Shapes(i).Delete
     Next i
 End Sub
 
 Private Sub PrepareCanvas(ByVal d As Worksheet)
     Dim i As Long, name As String
+    Dim status As Shape
     DeleteTreeShapes d
     If canvasReady Then Exit Sub
     ' Replace only the original v14 org panel and its page control.
@@ -618,12 +633,25 @@ Private Sub PrepareCanvas(ByVal d As Worksheet)
     d.Range("AF13").WrapText = True
     d.Range("AF13").Font.Size = 10
     d.Range("AF13").Font.Color = RGB(97, 112, 131)
-    d.Range("AF4:AU5").Value2 = "Product > Manager > Below direct. Connected reporting tree; click a manager card to focus."
+    Set status = d.Shapes.AddTextbox(msoTextOrientationHorizontal, CSng(d.Range("AF13").Left), _
+        CSng(d.Range("AF13").Top), CSng(d.Range("AF13:AU14").Width), CSng(d.Range("AF13:AU14").Height))
+    status.Name = PREFIX & "ui_status"
+    status.Fill.Visible = msoFalse
+    status.Line.Visible = msoFalse
+    status.Placement = xlFreeFloating
+    With status.TextFrame2
+        .MarginLeft = 0: .MarginRight = 0: .MarginTop = 0: .MarginBottom = 0
+        .WordWrap = msoTrue
+        .TextRange.Font.Name = FONT_NAME
+        .TextRange.Font.Size = 10
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(97, 112, 131)
+    End With
+    d.Range("AF4:AU5").Value2 = "Product > Manager > Below direct. Filters update the dashboard. Click Refresh org chart to rebuild the tree."
     AddButton d, "Refresh org chart", d.Range("AN11").Left, d.Range("AN11").Top, 118, "WCHOrgRefresh"
     AddButton d, "Up", d.Range("AN11").Left + 124, d.Range("AN11").Top, 40, "WCHOrgUp"
     AddButton d, "All managers", d.Range("AN11").Left + 170, d.Range("AN11").Top, 88, "WCHOrgAllManagers"
     ' Remove only the obsolete org-pagination instruction in the existing note.
-    d.Range("B200").Value2 = "Select Product, Manager and Below direct. The org tree shows all reporting levels without pages. Context managers are excluded from KPI counts. Duplicate links, cycles and paths beyond 20 levels remain under All, with unresolved reporting relationships marked."
+    d.Range("B200").Value2 = "Select Product, Manager and Below direct. Click Refresh org chart after changing filters or data. The tree is a snapshot of all selected reporting levels without pages. Context managers are excluded from KPI counts. Unresolved reporting relationships are marked."
     canvasReady = True
 End Sub
 
@@ -647,5 +675,5 @@ Private Sub AddButton(ByVal d As Worksheet, ByVal label As String, ByVal x As Do
 End Sub
 
 Private Sub ShowStatus(ByVal d As Worksheet, ByVal message As String)
-    d.Range("AF13").Value2 = message
+    d.Shapes(PREFIX & "ui_status").TextFrame2.TextRange.Text = message
 End Sub
