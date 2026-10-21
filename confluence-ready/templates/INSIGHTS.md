@@ -2,9 +2,9 @@
 
 # Insights inside WCSpedia
 
-Use one **Insights parent page inside the existing WCSpedia space**, not a second space. This keeps the same search scope, native permissions and navigation. The configured Insights page is **3961735728**, beneath WCSpedia landing page **3954553300**. It serves both as the Insights interface and the parent for new published Blog, Knowledge sharing and Reference pages. The eight business areas remain the destinations for other document types.
+Use one **Insights parent page inside the existing WCSpedia space**, page **3961735728** beneath landing page **3954553300**. Every supported type except **Job aid** publishes here directly. Job aids alone require a business area, reviewer and approver and publish beneath their business area after approval.
 
-The existing business area and topic tags still describe each article. Collection location and taxonomy have separate purposes: an Insights blog can retain its Credit Approval business area and Learning topic. Do not create a duplicate set of blog-specific topic labels. Existing published pages are not relocated automatically.
+The editor hides business-area, reviewer, approver and governance fields for Insights content. Topic tags and the comments setting remain available. Existing pages keep their history and are not moved in bulk. An authorized editor saving a legacy non-Job-aid document adopts direct publication to Insights; the routing change is recorded in its audit history.
 
 The listing follows the visual hierarchy of [Citi All Insights](https://www.citigroup.com/global/insights/all): a plain editorial heading, underlined type filters, topic/search controls and a three-column article grid. It inherits the existing Confluence font/header, uses real article cover attachments from a matching published page version when available and falls back to readable text cards when no usable cover exists. It introduces no external image service or second site header.
 
@@ -24,7 +24,7 @@ nativePublication: {
   workingRootPageId: "3961735834",
   areaPageIds: { /* preserve the existing eight mappings */ },
   insightsPageId: "3961735728",
-  insightsTypes: ["Blog", "Knowledge sharing", "Reference"]
+  insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ']
 }
 ```
 
@@ -34,15 +34,15 @@ The configured package includes these values. A native parent with this ID must 
 
 Use the existing header's **Add document → Blog** option to create a blog. Insights has no separate creation button; the shared menu uses the same permission checks and editor as other document types.
 
-When creating or editing a Blog, the author sets **Article comments** to **Enabled** or **Disabled**. Enabled is the default for new and older content. The strict boolean is stored as `version.commentsEnabled`; MDX supports `commentsEnabled: true` or `commentsEnabled: false`. Review, revision, import/export and audit preserve it. Changes to a published article go through the existing review/publication workflow rather than bypassing review.
+When creating or editing any Insights article, the author sets **Article comments** to **Enabled** or **Disabled**. Enabled is the default for new and older content. The strict boolean is stored as `version.commentsEnabled`; MDX supports `commentsEnabled: true` or `commentsEnabled: false`. Review, revision, import/export and audit preserve it. New blogs use **Publish to Insights** immediately, without reviewer or approver assignments. Subsequent edits to these blogs also publish directly. Legacy non-Job-aid articles adopt direct publication on an explicit authorized save; Job aids keep review and approval.
 
-The approved value is published with the article in the same native page version as its content. A native anchor records `wcs-comments-v1-enabled` or `wcs-comments-v1-disabled`, and Page Properties displays **Article comments**. The shared discussion component reads this setting during its existing lazy, scoped article read. Disabled articles display a notice without fetching the comment list or enabling the custom composer. Previously posted comments remain stored in Confluence.
+The selected value is published with the article in the same native page version as its content. A native anchor records `wcs-comments-v1-enabled` or `wcs-comments-v1-disabled`, and Page Properties displays **Article comments**. The shared discussion component reads this setting during its existing lazy, scoped article read. Disabled articles display a notice without fetching the comment list or enabling the custom composer. Previously posted comments remain stored in Confluence.
 
 This is a **WCSpedia discussion setting**, not a replacement for Confluence's native permissions. A reader who retains native Add Comments permission can still use a native Confluence interface or API outside the WCSpedia component. If disabling comments must be enforced across every interface, a server-side permission/policy integration must enforce that rule too. The browser setting must not be described as a security boundary.
 
 If an explicit published setting is malformed or cannot be verified, the component reports the issue and blocks custom posting rather than silently assuming comments are enabled. Older articles without the new setting keep the documented enabled default.
 
-## Trusted publication setup
+## Legacy trusted-service reference (not required for this space-only installation)
 
 Deploy the matching workflow, editor-content, publication-workflow and native publisher updates before relying on the new field or collection routing. Uploading browser attachments alone does not upgrade the trusted service.
 
@@ -52,7 +52,7 @@ The trusted publisher must independently receive:
 createPublisher({
   // Preserve the existing context, roots, space, storage and eight area mappings.
   insightsPageId: "3961735728",
-  insightsTypes: ["Blog", "Knowledge sharing", "Reference"]
+  insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ']
 });
 ```
 

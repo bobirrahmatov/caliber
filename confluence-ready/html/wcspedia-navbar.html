@@ -35,7 +35,7 @@ Upload wcspedia-add-document.js and wcspedia-add-documentHTMLPage.js to the
 shared attachments page. The existing global wcspedia-style.css styles it.
 Page IDs and both attachment URLs are already configured. No extra header, font, CSS link,
 application root, or page WCS_CONFIG is created here. Keep this macro in navBar.
-Startup positions one floating button at the top right, 12px below the navbar.
+Startup places Add document above the page progress-ring Back to top control at the bottom right.
 -->
 <div data-wcs-header-add-document aria-label="Add a WCSpedia document"><div class="wcs-add-document"><button type="button" class="wcs-add-document-trigger" disabled title="Checking access…" aria-label="Add document"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="wcs-add-document-label">Add document</span></button></div></div>
 <script>
@@ -98,7 +98,7 @@ window.WCS_ARTICLE_DISCUSSION_CONFIG = {
   rootPageId: '3954553300',
   attachmentPageId: '3962195316',
   insightsPageId: '3961735728',
-  insightsTypes: ['Blog', 'Knowledge sharing', 'Reference'],
+  insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'],
   workingRootPageId: '3961735834',
   pageIds: {
     home: '3954553300',

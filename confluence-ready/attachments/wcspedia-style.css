@@ -257,7 +257,11 @@
 #wcspedia #editor-error:not([hidden]){margin:20px 28px 0}
 #wcspedia #editor-reader{padding:20px 28px 40px}
 #wcspedia .editor-preview-note{font-size:11px;color:var(--muted);text-align:center;padding:7px 0 18px}
-#wcspedia .editor-preview-body{max-width:760px;margin:35px auto 0}
+/* One shared column keeps the preview title, cover and body aligned. */
+#wcspedia #editor-reader .editor-preview-layout{box-sizing:border-box!important;width:100%!important;max-width:900px!important;min-width:0!important;margin:0 auto!important}
+#wcspedia #editor-reader .insights-header{box-sizing:border-box!important;width:100%!important;max-width:none!important;margin:0!important;padding:10px 0 28px!important}
+#wcspedia #editor-reader .insights-cover{width:100%!important;max-width:none!important;margin:0!important}
+#wcspedia #editor-reader .editor-preview-body{box-sizing:border-box!important;width:100%!important;max-width:none!important;min-width:0!important;margin:28px 0 0!important;padding:0!important;overflow-wrap:anywhere}
 #wcspedia .editor-discard{position:fixed;inset:0;display:grid;place-items:center;background:#10264170;padding:20px;z-index:100}
 #wcspedia .editor-discard>div{max-width:430px;border-radius:12px;background:white;padding:30px;box-shadow:0 20px 60px #10264125}
 #wcspedia .editor-discard h2{font-size:25px;color:var(--navy);font-weight:400;margin-bottom:12px}
@@ -407,13 +411,19 @@
 #wcspedia .discovery-search button[type="submit"]:hover{background:#174bc5!important;border-color:#174bc5!important}
 /* This one utility lives outside the macro wrapper so it remains viewport-fixed
  * even when Confluence uses transform/overflow on its content wrappers. */
-#wcs-back-to-top{position:fixed!important;inset:auto 24px 20px auto!important;z-index:3900!important;display:flex!important;align-items:center!important;gap:11px!important;box-sizing:border-box!important;width:auto!important;min-width:0!important;max-width:calc(100vw - 32px)!important;height:auto!important;margin:0!important;border:1px solid #d5e1ee!important;background:#fff!important;color:#17355f!important;box-shadow:0 4px 24px #17355f1a!important;border-radius:30px!important;padding:12px 18px!important;font-family:inherit!important;font-size:13px!important;line-height:1.6!important;cursor:pointer!important;text-shadow:none!important;transform:none!important}
-#wcs-back-to-top:hover{background:#17355f!important;color:#fff!important;border-color:#17355f!important}
-#wcs-back-to-top:focus-visible{outline:3px solid #5b8ef0!important;outline-offset:3px!important}
+/* Shared native-page progress control; no font or page layout overrides. */
+#wcs-back-to-top{position:fixed!important;inset:auto max(20px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) auto!important;z-index:2900!important;display:grid!important;place-items:center!important;box-sizing:border-box!important;width:56px!important;min-width:56px!important;max-width:56px!important;height:56px!important;margin:0!important;padding:0!important;border:1px solid #d5e1ee!important;border-radius:50%!important;background:#fff!important;color:#255be3!important;box-shadow:0 8px 22px -7px #17355f66!important;cursor:pointer!important;appearance:none!important;text-shadow:none!important;transition:transform .2s ease,box-shadow .2s ease!important;animation:wcs-scroll-reveal .2s ease-out}
 #wcs-back-to-top[hidden]{display:none!important}
-#wcs-back-to-top span{font-size:19px;line-height:1}
-@media(max-width:1100px){#wcspedia{--wcs-page-gutter:32px}}
-@media(max-width:760px){#wcspedia{--wcs-page-gutter:18px;--wcs-page-radius:18px}#wcspedia .results-title-row{flex-wrap:wrap;align-items:flex-start}#wcs-back-to-top{right:16px!important;bottom:16px!important;padding:10px 15px!important}}
+#wcs-back-to-top:hover{transform:translateY(-3px)!important;box-shadow:0 12px 26px -7px #17355f66!important}
+#wcs-back-to-top:active{transform:scale(.93)!important}
+#wcs-back-to-top:focus-visible{outline:3px solid #255be3!important;outline-offset:3px!important}
+#wcs-back-to-top .wcs-scroll-ring-svg{position:absolute!important;inset:2px!important;width:52px!important;height:52px!important;transform:rotate(-90deg)!important;pointer-events:none!important}
+#wcs-back-to-top .wcs-scroll-track{stroke:#dce5f1!important;fill:none!important}
+#wcs-back-to-top .wcs-scroll-ring{stroke:#255be3!important;fill:none!important;stroke-dasharray:138.23!important;stroke-dashoffset:calc(138.23 * (1 - var(--wcs-scroll-progress,0)))!important}
+#wcs-back-to-top .wcs-scroll-arrow{position:relative!important;width:23px!important;height:23px!important;pointer-events:none!important}
+@keyframes wcs-scroll-reveal{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){#wcs-back-to-top{animation:none!important;transition:none!important}}
+@media(max-width:760px){#wcspedia{--wcs-page-gutter:18px;--wcs-page-radius:18px}#wcspedia .results-title-row{flex-wrap:wrap;align-items:flex-start}#wcs-back-to-top{right:max(12px,env(safe-area-inset-right))!important;bottom:max(16px,env(safe-area-inset-bottom))!important}}
 @media print{#wcspedia,#wcspedia>.shell{height:auto!important;max-height:none!important;overflow:visible!important;border-radius:0!important}#wcspedia .discovery-container{width:100%!important}#wcs-back-to-top{display:none!important}}
 
 /* Search feedback stays inside the search field, including while typing. */
@@ -422,6 +432,14 @@
 #wcspedia .wcs-search-progress { padding:12px!important; color:#526780!important; font:inherit!important; }
 @keyframes wcs-search-spin { to { transform:rotate(360deg); } }
 @media(prefers-reduced-motion:reduce) { #wcspedia .wcs-search-spinner { animation:none!important; } }
+
+/* Keep the reviewer queue close to its compact page heading. */
+#wcspedia .reviewer-workspace .press-heading { padding:24px 0!important; }
+#wcspedia .reviewer-workspace .press-heading .breadcrumbs { margin-bottom:16px!important; }
+#wcspedia .reviewer-workspace .press-heading h1 { font-size:clamp(28px,3vw,40px)!important; }
+#wcspedia .reviewer-workspace .review-container { padding-top:24px!important; }
+
+@media(min-width:481px) and (max-width:760px){#wcs-back-to-top{right:max(20px,env(safe-area-inset-right))!important;bottom:max(20px,env(safe-area-inset-bottom))!important}}
 
 /* Shared header notifications: standalone body portal, independent of page shells. */
 #wcs-notifications {
@@ -606,6 +624,14 @@
 @media(prefers-reduced-motion:reduce){:is(#wcspedia,.wcs-add-document,.wcs-article-discussion,.wcs-article-engagement,[data-wcs-article-discussion-host]) button > .wcs-button-spinner{animation:none!important}}
 :is(#wcspedia,.wcs-add-document,.wcs-article-discussion,.wcs-article-engagement,[data-wcs-article-discussion-host]) button[aria-busy="true"]{opacity:1!important}
 #wcspedia button.button[aria-busy="true"]:not(.secondary):not(.danger){background:var(--blue,#255be3)!important;color:#fff!important;border-color:var(--blue,#255be3)!important}
+
+/* An icon-only FAB occupies one grid cell, including either spinner mechanism. */
+:is(#wcspedia,.wcs-add-document) button.wcs-add-document-trigger > svg,
+:is(#wcspedia,.wcs-add-document) button.wcs-add-document-trigger > .wcs-button-spinner,
+:is(#wcspedia,.wcs-add-document) button.wcs-add-document-trigger[aria-busy="true"]::after {
+  grid-area:1 / 1!important; margin:0!important; align-self:center!important; justify-self:center!important;
+}
+:is(#wcspedia,.wcs-add-document) button.wcs-add-document-trigger[aria-busy="true"] > svg { visibility:hidden!important; }
 
 /* Authoring extensions, bundled into wcspedia-style.css. */
 #wcspedia .editor-mode-actions{display:flex;gap:13px;align-items:center;flex-wrap:wrap}
@@ -936,7 +962,7 @@
 [data-wcs-header-add-document],
 [data-wcs-add-document-host] { display:inline-flex!important; align-items:center!important; justify-content:flex-end!important; width:max-content!important; max-width:100%!important; margin:0!important; padding:0!important; }
 [data-wcs-header-add-document],
-[data-wcs-floating-add] { position:fixed!important; top:var(--wcs-add-top,84px)!important; right:max(20px,env(safe-area-inset-right))!important; z-index:2900!important; }
+[data-wcs-floating-add] { position:fixed!important; top:auto!important; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 72px)!important; right:max(20px,env(safe-area-inset-right))!important; z-index:2900!important; }
 [data-wcs-header-add-document][hidden],
 [data-wcs-add-document-host][hidden] { display:none!important; }
 .wcs-add-document,
@@ -963,7 +989,7 @@
 .wcs-add-document-popover .wcs-add-document-option-label { grid-column:2!important; grid-row:1 / span 2!important; font-size:14px!important; font-weight:600!important; }
 .wcs-add-document-popover .wcs-add-document-option-description { grid-column:2!important; font-size:11px!important; font-weight:400!important; color:#65748a!important; line-height:1.5!important; }
 @keyframes wcs-add-menu-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
-@media(max-width:480px) { [data-wcs-floating-add] { right:max(12px,env(safe-area-inset-right))!important; } }
+@media(max-width:480px) { [data-wcs-floating-add] { right:max(12px,env(safe-area-inset-right))!important; bottom:calc(max(16px,env(safe-area-inset-bottom)) + 72px)!important; } }
 @media(prefers-reduced-motion:reduce) { .wcs-add-document *,.wcs-add-document-popover,.wcs-add-document-popover * { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
 .wcs-add-document .wcs-add-document-trigger:disabled,
 :is(#navHeader,#navBar,#header,[data-wcs-header-add-document],[data-wcs-add-document-host]) .wcs-add-document .wcs-add-document-trigger:disabled { background:#eef1f5!important; border-color:#d3dbe5!important; color:#6b778c!important; -webkit-text-fill-color:#6b778c!important; cursor:not-allowed!important; box-shadow:none!important; opacity:1!important; transform:none!important; }
@@ -972,6 +998,8 @@
 
 .wcs-add-document-option:has(.wcs-add-document-option-description) .wcs-add-document-option-label { grid-row:1!important; }
 .wcs-add-document-option-description { grid-row:2!important; }
+
+@media print{[data-wcs-floating-add],.wcs-add-document-popover{display:none!important}}
 
 /* Entitlements use the shared Citi typography, surfaces and dialog component. */
 #wcspedia .entitlement-directory{padding-top:28px}

@@ -20,7 +20,7 @@ This release implements Add document, draft saving, review/publishing, entitleme
 | --- | --- |
 | Drafts and editable source | A working Confluence page beneath Working, with its own `wcspedia-document.json` attachment. The page is `status: current` in Confluence, with Draft/Review status managed by WCSpedia. |
 | Assignments, revision and workflow audit | Per-document JSON and small versioned content properties on that working page. No full-library JSON download is needed for landing/search. |
-| Approved article | An ordinary native child page beneath its configured business area, or Insights for Blog, Knowledge sharing and Reference. Revisions update the same published page ID. |
+| Approved article | An ordinary native child page beneath its configured business area, or Insights for every supported non-Job-aid type. Revisions update the same published page ID. |
 | Images and files | Versioned attachments on the relevant document pages. Publication stages and verifies media before exposing the new article. |
 | Entitlements | Existing `entitlements.json` on the shared attachments page. Add/Edit/Revoke update it from the Entitlements screen with a conflict-checked pointer. |
 | Saved items | The signed-in user's native Confluence favourites (`my:favourite`). No shared saved-items JSON. |
@@ -28,7 +28,7 @@ This release implements Add document, draft saving, review/publishing, entitleme
 | Helpfulness | One compact versioned JSON content property per account/document on the published article. A later vote replaces that account’s choice; the evaluated native page version is retained. |
 | Recorded views | One compact versioned JSON counter/deduplication property on each published article. One successfully recorded visit per eligible account per rolling 30 minutes. |
 | Content health | `wcspedia-health.json` on the managed document’s restricted Working page, plus versioned pointer/operation properties. Saves retain rules, assignments, review evidence and audit history. |
-| Comments and analytics | Comments stay native. **Download analytics JSON** on Insights explicitly reads comments and engagement and downloads one combined `wcspedia-analytics.json` for manual analysis. |
+| Comments and analytics | Comments stay native. Article analytics exports read comments and engagement for manual analysis; Insights has no analytics download control. |
 
 No starter JSON is required for helpfulness, recorded views or content health. Successful native writes create their records automatically. Content properties are native JSON storage, not attachments you need to upload. No shared analytics attachment is rewritten on article visits. Preserve all existing records; uploading an empty starter would not enable or repair these features.
 
@@ -93,7 +93,7 @@ This is a cooperative workflow running in the browser. Confluence enforces nativ
 
 View restrictions inherit; edit restrictions do not. The workflow verifies the working parent and applies individual edit restrictions. It stages a first publication under Working before moving it to the reader destination. Existing native page content and legacy service records are not automatically enrolled into this new per-document workflow.
 
-Before department rollout, test with two actual accounts: save a small draft, reload it, submit, review, approve, verify the child page and media, make a new revision, check Saved items and send a suggestion. Also verify a user without rights cannot perform these actions. On an article, check a helpfulness vote survives reload, changing the vote replaces it, and repeated visits within 30 minutes do not add to recorded views. Test an account without article Edit permission and confirm it receives an unavailable recording state rather than a successful vote. Save content-health rules on a managed published document, reload, and verify the retained rules/evidence and conflict recovery. Download analytics JSON from Insights and check its aggregate counts and coverage. Disabling blog comments must leave helpfulness and view recording independent. Local automated tests cannot establish your internal instance's permissions, installed REST behavior or network performance.
+Before department rollout, test with two actual accounts: save a small draft, reload it, submit, review, approve, verify the child page and media, make a new revision, check Saved items and send a suggestion. Also verify a user without rights cannot perform these actions. On an article, check a helpfulness vote survives reload, changing the vote replaces it, and repeated visits within 30 minutes do not add to recorded views. Test an account without article Edit permission and confirm it receives an unavailable recording state rather than a successful vote. Save content-health rules on a managed published document, reload, and verify the retained rules/evidence and conflict recovery. Use the article analytics export for manual checks; Insights has no analytics export control. Disabling blog comments must leave helpfulness and view recording independent. Local automated tests cannot establish your internal instance's permissions, installed REST behavior or network performance.
 
 Native API references: [page creation and versioned updates](https://developer.atlassian.com/server/confluence/confluence-rest-api-examples/), [content properties](https://developer.atlassian.com/server/confluence/content-properties-in-the-rest-api/), [page restrictions](https://confluence.atlassian.com/doc/page-restrictions-139414.html).
 
@@ -120,3 +120,50 @@ Keep drafts private. If the instance does not let your account set restrictions,
 ## Interface update
 
 Replace the matching page JS pairs, shared header pair and global CSS from the configured package, then hard-refresh to reload stable attachment URLs. Keep your existing live JSON. Entitlement records and access-change history default to ten rows; their page-size controls sit below the table on the left and pagination on the right. SOEIDs, scope identifiers and audit JSON use code formatting. The active-record/signed-in/policy-revision banner is removed. Insights uses the shared search button and Topics popover, and no longer exposes analytics export or performs the associated management-policy request. Busy actions have their own spinner element, independent of tooltips and tab underlines.
+
+## Working collection compatibility and floating creation control
+
+Workspace discovery requests only space, ancestors, version and operations from the Working child collection. If that collection rejects the request with HTTP 400/405 or a server error, it restarts once with native CQL restricted to `type = page AND space = "wcspedia" AND parent = <Working ID>`. Every returned page is checked against that space and direct parent. HTTP 401/403/404 and cancellation do not trigger fallback; a failed fallback remains an error. Matching workflow summaries determine which full document bodies need loading. The CQL fallback depends on Confluence indexing, so newly created pages may take time to appear if the child endpoint remains broken.
+
+Add document checks capabilities independently of workspace listing. A child-list HTTP 500 does not prove the grey FAB has the same cause. Its tooltip and `[WCSpedia Add document]` console message identify the failed entitlement, native permission, privacy or network check. No grant bypass is used. The floating button retains clearance below the navbar when a theme scrolls its include wrapper but keeps the visible navigation fixed.
+
+## Blogs and save recovery (2026-10-21)
+
+Every supported type except Job aid uses the existing WCSpedia editor with **Destination: Insights** and a **Publish to Insights** button. They have no business-area, reviewer or manager fields. Publishing and subsequent Insights edits do not enter the review queue or invent approval records. Job aids retain review and approval. Legacy non-Job-aid documents adopt direct Insights publishing on an explicit authorized save, preserving history. Insights remains page `3961735728` within WCSpedia.
+
+The restricted Working parent still stages source/media and recovery metadata before publication. A blog's readable native page is placed under Insights; it is an ordinary child page, not a Confluence blogpost. Publishing still requires the current user's WCSpedia creation/edit entitlement and native permissions. The comments switch remains available.
+
+Writes have a separate 60-second confirmation timeout; ordinary reads retain 12 seconds. A timeout is not proof of rejection. **Check save** keeps fields locked and resubmits the exact original command/request ID. It first reconciles the existing page/journal before continuing. Stay in the editor until this resolves; do not create a second copy or remove native restrictions. The error identifies the native method/path that did not confirm. Manual changes or a different pending operation are still surfaced as conflicts.
+
+One save no longer repeats the same root, identity and policy preflight solely to assemble its returned workspace. A new action still rechecks authorization. Workspace listings remain heavier than CQL discovery because they load editable workflow state for assigned documents. Paginating those summaries and loading full source only when opening an editor is the next larger performance improvement; this release does not claim that work is complete.
+
+For a blog MDX metadata block use `type: "Blog"` and `area: "insights"`. The other fields use the supplied document template. No approval assignments belong in MDX.
+
+## Lighter loading and preview alignment (2026-10-21)
+
+Update all matching attachment pairs and the single global stylesheet from this package. Preserve the live JSON. No extra service, index attachment or header is required.
+
+- Add document loads the verified identity, entitlements, directory and creation permissions without listing Working children or downloading existing document histories.
+- Edit/document/review detail routes resolve one stable working-page title inside WCSpedia, then verify its parent, identity marker and native permissions. A save confirms this same document instead of reloading every Working child.
+- My Workspace filters owner/author summaries before reading document JSON. Reviewer Workspace filters the assigned active review/approval stage before reading document JSON. Summaries are discovery hints; all writes still recheck authoritative state and permissions.
+- Switching from a limited response to another workspace fetches the required scope. An abandoned response cannot overwrite the new screen. Saved items and health are deferred while authoring or managing entitlements.
+- New document references use the stable document key, not the number of loaded records.
+- Preview heading, cover and article now share one responsive column with equal outer margins.
+
+Workspace lists still enumerate lightweight Working-page summaries within the existing safe limit. Matching documents still load their current metadata/history; this change does not introduce a separate indexed summary store or server-side pagination. Search remains scoped native CQL. Live response times depend on the internal Confluence server.
+
+## Idle return and Add document responsiveness (2026-10-21)
+
+The shared header now reuses its last verified access result only to open the Add document menu and navigate to the editor. Opening and choosing a type no longer repeat the complete access query. This navigation hint lives in memory for this page only; after 60 seconds it refreshes on interaction or returning to the tab, without blocking an already enabled menu. Concurrent refreshes share one check. A denial or error disables the button, and returning to the tab can retry a failed check. Back/Forward restoration and explicit configuration updates still revalidate. The editor and all writes continue to read current identity, policy, native permissions and document versions; the header hint grants no write authority.
+
+Access/JSON requests now have bounded fetch and response-body waits, including cancellation when a transport ignores its abort signal. A failed read releases its caller with an error instead of leaving a form waiting indefinitely. An uncertain write retains the original request and Check save recovery; returning to a tab never unlocks or retries it automatically.
+
+Shared dialog cleanup now notifies the editor when Confluence removes a dialog from the DOM. This prevents a detached dialog handle from silently blocking later editor tools or the leave dialog. Resume cleanup restores only WCSpedia-owned modal state; it does not remove native restrictions or unlock an active save.
+
+Replace the JavaScript attachments with the matching files in the configured package, especially both `wcspedia-add-document` files and both My workspace files. Close old WCSpedia tabs and reopen after uploading to ensure the old script instance is no longer running. Preserve live JSON attachments. There are no new page IDs, JSON files, services or permission changes to configure.
+
+Local regression coverage includes simulated ten-minute idle return, repeat menu clicks with no extra reads, refresh denial/recovery, detached dialogs, preserved draft content, bounded hung requests, and unchanged unknown-write recovery. This is not verification of the internal Confluence session timeout or theme scripts.
+
+## Shared floating controls
+
+Use the supplied `html/wcspedia-navbar.html` once in an HTML macro on the existing navBar page and keep `{include:wcspedia:navBar}` in Look and Feel. Add document stays above a circular Back to top control at the bottom right. The progress ring appears after 8% of scrolling and follows the existing Confluence scroll owner. It does not add a scroll box or change the page URL. A short page needs no Back to top control; Add document keeps its fixed position. The shared script mounts once on native child articles and interface pages. No separate include on every article is needed. Upload the matching Add document JS pair and global CSS, plus the updated page bundles to remove the previous page-owned Back to top implementation.

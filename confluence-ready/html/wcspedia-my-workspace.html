@@ -86,7 +86,7 @@ Order: inline settings → page logic JS → page HTMLPage JS. No config.js file
     attachmentPageId: attachmentPageId, attachmentFilename: 'wcspedia-published.json',
     pageRole: 'mine', pages: pages, showConnectionStatus: false, mountGlobalTools: false,
     brandLogoUrl: attachment('wcspedia-logo.png'),
-    nativePublication: { enabled: true, publishedRootPageId: rootPageId, workingRootPageId: settings.workingRootPageId, areaPageIds: settings.areaPageIds, insightsPageId: settings.insightsPageId, insightsTypes: ['Blog', 'Knowledge sharing', 'Reference'] },
+    nativePublication: { enabled: true, publishedRootPageId: rootPageId, workingRootPageId: settings.workingRootPageId, areaPageIds: settings.areaPageIds, insightsPageId: settings.insightsPageId, insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'] },
     search: settings.search, charts: settings.charts,
     exports: Object.assign({}, settings.exports, { logoUrl: attachment('citi-logo.png'), mdxTemplateUrl: attachment('wcspedia-document.mdx') })
   });

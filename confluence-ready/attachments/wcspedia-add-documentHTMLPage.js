@@ -5,46 +5,19 @@
  */
 (function () {
   'use strict';
-  var revision = 'b76b4fbf7a16';
+  var revision = '090f0eb8c44e';
   function placeFloating(host) {
     // Portal out of themed headers: transforms/overflow there can clip fixed controls.
-    var header = host.closest('#navHeader,#navBar,[role="banner"],header,#header,.aui-header');
-    var frame = null, observer = null, stopped = false;
     host.setAttribute('data-wcs-floating-add', '');
     host.removeAttribute('data-wcs-before-create');
+    host.style.removeProperty('--wcs-add-top');
     document.body.append(host);
-    function place() {
-      frame = null;
-      if (stopped || !host.isConnected) return;
-      if (!header || !header.isConnected) header = document.querySelector('#navHeader,#navBar') || document.querySelector('[role="banner"],header,#header,.aui-header');
-      var bottom = header && header.getClientRects().length ? header.getBoundingClientRect().bottom : 72;
-      var height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-      var top = Math.max(12, Math.min(Math.max(0, bottom) + 12, height - 72)) + 'px';
-      if (host.style.getPropertyValue('--wcs-add-top') !== top) {
-        host.style.setProperty('--wcs-add-top', top);
-        window.dispatchEvent(new Event('wcspedia:add-position'));
-      }
-      if (observer && header && observedHeader !== header) {
-        observer.disconnect(); observer.observe(header); observedHeader = header;
-      }
-    }
-    function schedule() { if (!stopped && frame == null) frame = window.requestAnimationFrame(place); }
-    var observedHeader = null;
-    if (typeof window.ResizeObserver === 'function') observer = new window.ResizeObserver(schedule);
-    place();
-    window.addEventListener('resize', schedule);
-    window.addEventListener('scroll', schedule, {passive:true, capture:true});
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', schedule);
-    return function () {
-      stopped = true;
-      if (observer) observer.disconnect();
-      if (frame != null) window.cancelAnimationFrame(frame);
-      window.removeEventListener('resize', schedule);
-      window.removeEventListener('scroll', schedule, true);
-      if (window.visualViewport) window.visualViewport.removeEventListener('resize', schedule);
-    };
+    window.WCSScrollTools?.mount();
+    return function () {};
   }
+
   function start() {
+    window.WCSScrollTools?.mount();
     // Included headers and older page macros can both contain a mount. Own
     // exactly one widget, including when Confluence evaluates this script twice.
     var selector = '[data-wcs-header-add-document],[data-wcs-add-document]';
@@ -119,6 +92,7 @@
           createUrl: context + '/pages/viewpage.action?pageId=' + encodeURIComponent(workspacePageId) + '#/create',
           unavailableMessage: unavailable,
           accessTimeoutMs: accessTimeout,
+          reuseNavigationAccess: true,
           canCreate: async function (request) {
             var access = await adapter.loadAccess({signal: request.signal});
             if (access.creationMessage && !(access.effectivePermissions && access.effectivePermissions['content.create'] === true)) {

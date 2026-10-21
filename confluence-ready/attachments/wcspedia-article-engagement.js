@@ -33,6 +33,8 @@
     config = config || {}; dependencies = dependencies || {};
     var fetcher = dependencies.fetch || root.fetch, crypto = dependencies.crypto || root.crypto, timeoutMs = config.requestTimeoutMs == null ? 12000 : config.requestTimeoutMs;
     if (!integer(timeoutMs, 1) || timeoutMs > 60000) fail('Configure a request timeout between 1 and 60000 milliseconds.', 'CONFIGURATION');
+    var writeTimeoutMs=config.writeTimeoutMs==null?60000:config.writeTimeoutMs;
+    if(!integer(writeTimeoutMs,1)||writeTimeoutMs>120000)fail('Configure a write timeout between 1 and 120000 milliseconds.','CONFIGURATION');
     var origin = dependencies.origin || root.location && root.location.origin;
     var base;
     try { base = new URL(config.baseUrl || (config.contextPath || '/confluence'), origin); } catch (_) { fail('Configure a same-origin Confluence URL.', 'CONFIGURATION'); }
@@ -75,11 +77,11 @@
       var response, controller = new AbortController(), timer, onAbort;
       var stopped = new Promise(function (_, reject) {
         function stop(external) {
-          var error = new Error(mutation ? 'The write outcome is unknown. Preserve the original request ID before retrying.' : external ? 'The request was cancelled.' : 'Confluence took too long to respond. Try again.');
+          var error = new Error(mutation ? 'Confluence has not confirmed '+method+' '+url.pathname+'. Use Check save to recover this same request; do not start another document.' : external ? 'The request was cancelled.' : 'Confluence took too long to respond. Try again.');
           if (mutation) error.code = 'UNKNOWN_COMMIT'; else if (external) error.name = 'AbortError'; else error.code = 'TIMEOUT';
           reject(error); controller.abort();
         }
-        timer = setTimeout(function () { stop(false); }, timeoutMs);
+        timer = setTimeout(function () { stop(false); }, mutation ? writeTimeoutMs : timeoutMs);
         onAbort = function () { stop(true); };
         if (init.signal) init.signal.addEventListener('abort', onAbort, { once: true });
       });

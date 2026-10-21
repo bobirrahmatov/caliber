@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === 'b76b4fbf7a16') return;
+  if (registry.addDocument && registry.addDocument.version === '090f0eb8c44e') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -122,6 +122,11 @@
   else root.WCSEditorContent = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (MarkdownIt) {
   'use strict';
+  // One content-type rule for editor, native writes, imports and discovery.
+  var INSIGHT_TYPES = Object.freeze(['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ']);
+  function isInsightType(type) { return INSIGHT_TYPES.indexOf(type) !== -1; }
+  function publicationModeFor(type) { return type === 'Blog' ? 'direct-blog' : isInsightType(type) ? 'direct-insight' : null; }
+  function isDirectPublication(doc) { return !!doc && isInsightType(doc.type) && doc.area === 'insights' && doc.publicationMode === publicationModeFor(doc.type); }
   var MAX_PORTABLE_BYTES = 8 * 1024 * 1024;
   // Count UTF-8 bytes, including non-ASCII prose, without allocating a second
   // copy of a potentially large embedded-resource import.
@@ -323,7 +328,7 @@
     var result = {
       commentsEnabled: validateCommentsEnabled(values.commentsEnabled),
       title: metadataText(values.title, 'Metadata title', 160), summary: metadataText(values.summary, 'Metadata summary', 1000),
-      type: metadataText(values.type, 'Metadata type', 80), area: metadataText(values.area, 'Metadata area', 120),
+      type: metadataText(values.type, 'Metadata type', 80), area: isInsightType(values.type) ? 'insights' : metadataText(values.area, 'Metadata area', 120),
       tags: validateTags(values.tags == null ? [] : values.tags), processes: validateTags(values.processes == null ? [] : values.processes, 'processes'), regions: validateTags(values.regions == null ? [] : values.regions, 'regions'),
       sourceMetadata: validateSourceMetadata({ schemaVersion: 1, sourceId: values.sourceId, originalCreatedAt: values.originalCreatedAt, originalUpdatedAt: values.originalUpdatedAt, sourceAuthor: values.sourceAuthor, sourcePath: values.sourcePath })
     };
@@ -800,7 +805,7 @@
     normalizeImport(result);
     return result;
   }
-  return Object.freeze({ fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
+  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
 });
 
 ;
@@ -911,7 +916,14 @@
     });
     return peopleById;
   }
+  function directPublication(doc) { return editorContent.isDirectPublication(doc); }
+  function requiredFields(doc) { return directPublication(doc) ? REQUIRED_FIELDS.filter(function(k){return k !== 'reviewerId' && k !== 'approverId';}) : REQUIRED_FIELDS; }
   function assignments(doc, peopleById, allowEntitledAuthor) {
+    if (doc.publicationMode != null && !directPublication(doc)) fail('Direct publication requires a supported non-Job-aid type in Insights.');
+    if (directPublication(doc)) {
+      if (!has(peopleById,doc.authorId) || !has(peopleById,doc.ownerId) || doc.reviewerId != null || doc.approverId != null) fail('Insights articles require an author and owner, without review assignments.');
+      return;
+    }
     ['ownerId', 'authorId', 'reviewerId', 'approverId'].forEach(function (field) {
       if (!has(peopleById, doc[field])) fail('Assign a valid ' + field.replace('Id', '') + '.');
     });
@@ -1005,7 +1017,7 @@
   function publishedVersion(doc) { return isDeleted(doc) ? null : recordedPublishedVersion(doc); }
   function validateDocument(doc, peopleById) {
     if (!doc || typeof doc !== 'object' || Array.isArray(doc)) fail('A document is required.');
-    REQUIRED_FIELDS.forEach(function (field) { requiredText(doc[field], field); });
+    requiredFields(doc).forEach(function (field) { requiredText(doc[field], field); });
     assignments(doc, peopleById, true);
     if (has(doc, 'confluence')) confluenceLocation(doc.confluence);
     if (!Array.isArray(doc.versions) || !doc.versions.length || !Array.isArray(doc.audit)) fail('Document versions and audit history are required.');
@@ -1044,6 +1056,7 @@
     if (mayEdit) {
       if (current.status === 'Draft' || current.status === 'Changes requested') actions.push('edit', 'submit');
       if (current.status === 'Published') actions.push('revise');
+      if (editorContent.isInsightType(doc.type) && ['In review','Awaiting approval'].includes(current.status)) actions.push('edit');
     }
     if (!contributed(doc, current, actorId)) {
       if (actorId === doc.reviewerId && current.status === 'In review') actions.push('request-changes', 'complete-review');
@@ -1113,8 +1126,9 @@
     if (has(fields, 'sourceImportedAt')) fail('The source import time is recorded by the service and cannot be supplied.');
     var peopleById = peopleMap(options.people);
     var at = clock(options);
-    var doc = {};
-    REQUIRED_FIELDS.forEach(function (field) { doc[field] = field === 'id' && fields[field] == null ? newDocumentId() : requiredText(fields[field], field); });
+    var doc = fields.publicationMode != null ? {publicationMode:fields.publicationMode,type:fields.type,area:fields.area,reviewerId:null,approverId:null} : {};
+    if (fields.publicationMode != null && !directPublication(doc)) fail('Only supported non-Job-aid types in Insights can publish directly.');
+    requiredFields(doc).forEach(function (field) { doc[field] = field === 'id' && fields[field] == null ? newDocumentId() : requiredText(fields[field], field); });
     if (has(fields, 'confluence')) doc.confluence = confluenceLocation(fields.confluence);
     var entitledCreator = permissionGranted(options.permissionContext, doc, options.actorId, 'create');
     if (options.permissionContext != null && !entitledCreator) fail('Document creation is not permitted for this actor.');
@@ -1128,8 +1142,9 @@
     doc.publishedVersion = null;
     doc.versions = [version];
     doc.audit = [];
-    event(doc, { at: at, actorId: options.actorId, actorSOEID: options.actorSOEID, action: 'create', version: 1, revision: 1, fromStatus: null, toStatus: 'Draft', comment: changeSummary,
-      changes: REQUIRED_FIELDS.map(function (field) { return change(field, null, doc[field]); }).concat(has(doc, 'confluence') ? [change('confluence', null, doc.confluence)] : []).concat([change('publishedVersion', null, null), change('versionSnapshot', null, version)]) });
+    if(directPublication(doc)){version.status='Published';version.publishedAt=at;doc.publishedVersion=1;}
+    event(doc, { at: at, actorId: options.actorId, actorSOEID: options.actorSOEID, action: 'create', version: 1, revision: 1, fromStatus: null, toStatus: version.status, comment: changeSummary,
+      changes: REQUIRED_FIELDS.map(function (field) { return change(field, null, doc[field]); }).concat(has(doc, 'confluence') ? [change('confluence', null, doc.confluence)] : []).concat([change('publishedVersion', null, doc.publishedVersion), change('versionSnapshot', null, version)]) });
     return doc;
   }
   function transition(input, action, options) {
@@ -1151,7 +1166,13 @@
     var doc = copy(input);
     var version = currentVersion(doc);
     var before = copy(version);
-    var changes = [];
+    var changes = [], routingChanges = [];
+    var adoptingInsights = editorContent.isInsightType(doc.type) && !directPublication(doc) && ['edit','revise'].includes(action);
+    if (adoptingInsights) {
+      var priorRouting = copy(doc);
+      doc.publicationMode = editorContent.publicationModeFor(doc.type); doc.area = 'insights'; doc.reviewerId = null; doc.approverId = null;
+      routingChanges = diff(priorRouting, doc, ['publicationMode','area','reviewerId','approverId']);
+    }
 
     // The trusted service must always opt in for new submissions. The optional
     // switch permits read/replay of historical fixtures; it is not a client grant.
@@ -1170,7 +1191,7 @@
       if (version.sourceMetadata && (!newContent.sourceMetadata || newContent.sourceMetadata.sourceId !== version.sourceMetadata.sourceId)) fail('The imported source identity cannot be changed or removed. Create a separate document for a different source.');
       if (newContent.sourceMetadata) newContent.sourceImportedAt = version.sourceImportedAt || at;
       var contentChanges = diff(version, newContent, CONTENT_FIELDS);
-      if (!contentChanges.length) fail('Make a content change before saving.');
+      if (!contentChanges.length && !adoptingInsights) fail('Make a content change before saving.');
     }
 
     if (action === 'edit') {
@@ -1178,7 +1199,7 @@
       clearGovernanceReview(version);
       version.contributorIds = Array.from(new Set([doc.authorId, version.createdBy].concat(version.contributorIds || [], [options.actorId]).filter(Boolean)));
       version.revision += 1;
-      version.status = 'Draft';
+      version.status = directPublication(doc) ? 'Published' : 'Draft';
       version.changeSummary = comment;
       // Include all content, even unchanged fields, so every edit is independently
       // reconstructable without relying on an overwritten working document.
@@ -1220,6 +1241,7 @@
       version = Object.assign({}, copy(before), newContent || {}, emptyReview(), { version: before.version + 1, revision: 1, status: 'Draft', createdAt: at, createdBy: options.actorId, contributorIds: [options.actorId], changeSummary: comment });
       clearGovernanceReview(version);
       doc.versions.push(version);
+      if(directPublication(doc)){version.status='Published';version.publishedAt=at;doc.publishedVersion=version.version;}
       changes.push(change('sourcePublishedVersion', null, before.version), change('versionSnapshot', null, version));
       // Saving an edit of published content creates one draft atomically. The
       // approved snapshot is untouched; the event captures exact field changes.
@@ -1237,7 +1259,9 @@
       changes.push(change('versionSnapshot', before, before));
     }
 
+    if (directPublication(doc) && action === 'edit') {version.status='Published';version.publishedAt=at;doc.publishedVersion=version.version;changes.push(change('publishedVersion',input.publishedVersion,doc.publishedVersion));}
     if (action !== 'edit' && action !== 'revise') changes = changes.concat(diff(before, version, ['status'].concat(REVIEW_FIELDS)));
+    changes = routingChanges.concat(changes);
     event(doc, { at: at, actorId: options.actorId, actorSOEID: options.actorSOEID, action: action, version: version.version, revision: version.revision, fromStatus: before.status, toStatus: action === 'delete' ? 'Deleted' : version.status, comment: comment, changes: changes });
     return doc;
   }
@@ -1282,6 +1306,8 @@
     config = config || {}; dependencies = dependencies || {};
     var fetcher = dependencies.fetch || root.fetch, crypto = dependencies.crypto || root.crypto, timeoutMs = config.requestTimeoutMs == null ? 12000 : config.requestTimeoutMs;
     if (!integer(timeoutMs, 1) || timeoutMs > 60000) fail('Configure a request timeout between 1 and 60000 milliseconds.', 'CONFIGURATION');
+    var writeTimeoutMs=config.writeTimeoutMs==null?60000:config.writeTimeoutMs;
+    if(!integer(writeTimeoutMs,1)||writeTimeoutMs>120000)fail('Configure a write timeout between 1 and 120000 milliseconds.','CONFIGURATION');
     var origin = dependencies.origin || root.location && root.location.origin;
     var base;
     try { base = new URL(config.baseUrl || (config.contextPath || '/confluence'), origin); } catch (_) { fail('Configure a same-origin Confluence URL.', 'CONFIGURATION'); }
@@ -1324,11 +1350,11 @@
       var response, controller = new AbortController(), timer, onAbort;
       var stopped = new Promise(function (_, reject) {
         function stop(external) {
-          var error = new Error(mutation ? 'The write outcome is unknown. Preserve the original request ID before retrying.' : external ? 'The request was cancelled.' : 'Confluence took too long to respond. Try again.');
+          var error = new Error(mutation ? 'Confluence has not confirmed '+method+' '+url.pathname+'. Use Check save to recover this same request; do not start another document.' : external ? 'The request was cancelled.' : 'Confluence took too long to respond. Try again.');
           if (mutation) error.code = 'UNKNOWN_COMMIT'; else if (external) error.name = 'AbortError'; else error.code = 'TIMEOUT';
           reject(error); controller.abort();
         }
-        timer = setTimeout(function () { stop(false); }, timeoutMs);
+        timer = setTimeout(function () { stop(false); }, mutation ? writeTimeoutMs : timeoutMs);
         onAbort = function () { stop(true); };
         if (init.signal) init.signal.addEventListener('abort', onAbort, { once: true });
       });
@@ -1770,18 +1796,19 @@ function renderStorage(document, selected, people = [], options = {}) {
   if (options.operation && !['working', 'published'].includes(options.operation)) fail('Unknown native publication operation.');
   const published = options.operation === 'published';
   const reviewed = version.reviewedBy && version.reviewedBy === document.reviewerId && version.reviewedRevision === version.revision && !!version.reviewedAt;
+  const directInsight = content.isDirectPublication(document) && version.status === 'Published' && !!version.publishedAt;
   const approved = reviewed && version.status === 'Published' && version.approvedBy === document.approverId && !!version.approvedAt;
-  if (published && (!approved || document.publishedVersion !== version.version)) fail('Native publication requires the current approved snapshot and review of its exact revision.');
+  if (published && (!(approved || directInsight) || document.publishedVersion !== version.version)) fail('Native publication requires the current approved snapshot and review of its exact revision.');
   // Validate every declared resource, including resources not used inline.
   items.forEach(item => staged(options, item.key, item.sourceUrl));
   const governance = content.governanceDetails(version);
   const rows = [
     ['Document key', document.id], ['Document reference', document.reference || document.id], ['Content type', document.type || 'Not recorded'],
-    ['Business area', options.areaLabel || document.area || 'Not recorded'], ['Document owner', personLabel(document.ownerId, people)], ['Author', personLabel(document.authorId || version.createdBy, people)],
+    [directInsight?'Collection':'Business area', directInsight?'Insights':options.areaLabel || document.area || 'Not recorded'], ['Document owner', personLabel(document.ownerId, people)], ['Author', personLabel(document.authorId || version.createdBy, people)],
     ['Owning team', governance ? governance.owningTeam : 'Not recorded'], ['Source version', String(version.version)], ['Source revision', String(version.revision)],
     ['Article comments', version.commentsEnabled ? 'Enabled' : 'Disabled'],
     ['Workflow status', published ? 'Published' : version.status === 'Published' ? 'Working copy' : version.status],
-    ['Last updated', date(version.updatedAt || version.createdAt)], ['Next review due date', published ? date(version.nextReviewAt) : 'Not approved for publication']
+    ['Last updated', date(version.updatedAt || version.createdAt)], [directInsight?'Publication':'Next review due date',directInsight?'Author published · no approval required':published ? date(version.nextReviewAt) : 'Not approved for publication']
   ];
   if (version.sourceMetadata) {
     const source = version.sourceMetadata;
@@ -1793,8 +1820,9 @@ function renderStorage(document, selected, people = [], options = {}) {
     rows.push(['Imported into WCSpedia', version.sourceImportedAt]);
   }
   if (reviewed && ['Awaiting approval', 'Published'].includes(version.status)) rows.push(['Reviewed by', personLabel(version.reviewedBy, people)], ['Review date', date(version.reviewedAt)]);
-  if (published) rows.push(['Approved by', personLabel(version.approvedBy, people)], ['Approval date', date(version.approvedAt)], ['Effective date', date(version.effectiveAt)]);
-  else rows.push(['Approval', 'Not approved for publication']);
+  if (published && directInsight) rows.push(['Published by',personLabel(version.createdBy,people)],['Publication date',date(version.publishedAt)]);
+  else if (published) rows.push(['Approved by', personLabel(version.approvedBy, people)], ['Approval date', date(version.approvedAt)], ['Effective date', date(version.effectiveAt)]);
+  else if (!directInsight) rows.push(['Approval', 'Not approved for publication']);
   ['tags', 'processes', 'regions'].forEach(kind => { const values = content.validateTags(version[kind] || [], kind); if (values.length) rows.push([kind === 'tags' ? 'Topics' : kind === 'regions' ? 'Regions covered' : 'Processes', values.join(', ')]); });
   // The shared header applies host chrome flags only to explicitly marked page
   // views. Keep a real content heading when the native title is hidden; native
@@ -1844,7 +1872,40 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   function parent(p){return (p.ancestors||[]).length?String(p.ancestors[p.ancestors.length-1].id):null;}
   function op(p,name,target){return Array.isArray(p&&p.operations)&&p.operations.some(function(o){return o.operation===name&&o.targetType===(target||'page');});}
   function anchor(value){return '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">'+value+'</ac:parameter></ac:structured-macro>';}
-  function marked(page,value){return !!(page.body&&page.body.storage&&page.body.storage.value.includes(anchor(value)));}
+  // Confluence adds macro IDs and can reorder attributes when storing XHTML.
+  // Read anchor semantics, never an exact serialization or a text substring.
+  function markers(page){
+    var source=page.body&&page.body.storage&&page.body.storage.value;
+    if(typeof source!=='string')return [];
+    var found=[],stack=[],candidate=null,parameter=null;
+    function attribute(tag,name){var match=tag.match(new RegExp('\\s'+name+'\\s*=\\s*(["\x27])([\\s\\S]*?)\\1'));return match?match[2]:null;}
+    var tokens=source.match(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<[^>]*>|[^<]+/g)||[];
+    tokens.forEach(function(token){
+      if(token.startsWith('<!--')||token.startsWith('<![CDATA[')){if(candidate)candidate.invalid=true;return;}
+      if(token[0]!=='<'){if(parameter)parameter.text+=token;return;}
+      var close=token.match(/^<\/([\w:.-]+)\s*>$/);
+      if(close){
+        if(stack.at(-1)!==close[1]){candidate=null;parameter=null;stack=[];return;}
+        if(parameter&&parameter.depth===stack.length){
+          if(close[1]==='ac:parameter'&&!candidate.invalid&&parameter.name==='')candidate.values.push(parameter.text.trim());
+          parameter=null;
+        }
+        if(candidate&&candidate.depth===stack.length){
+          if(!candidate.invalid&&candidate.values.length===1&&/^wcs-[a-zA-Z0-9._:-]+$/.test(candidate.values[0]))found.push(candidate.values[0]);
+          candidate=null;
+        }
+        stack.pop();return;
+      }
+      var open=token.match(/^<([\w:.-]+)(?:\s|\/?>)/);if(!open)return;
+      if(parameter)candidate.invalid=true;
+      if(open[1]==='ac:structured-macro'&&!stack.some(function(t){return t==='ac:structured-macro'||t==='ac:plain-text-body';})&&attribute(token,'ac:name')==='anchor')candidate={depth:stack.length+1,values:[],invalid:false};
+      if(candidate&&open[1]==='ac:parameter'&&stack.length===candidate.depth)parameter={depth:stack.length+1,name:attribute(token,'ac:name'),text:''};
+      if(!/\/\s*>$/.test(token))stack.push(open[1]);
+      else if(parameter&&parameter.depth===stack.length+1)parameter=null;
+    });
+    return found;
+  }
+  function marked(page,value){return markers(page).includes(value);}
   function aborted(signal){if(signal&&signal.aborted){var e=new Error('The operation was cancelled.');e.name='AbortError';throw e;}}
   function canonical(v){if(Array.isArray(v))return v.map(canonical);if(object(v))return Object.keys(v).sort().reduce(function(r,k){if(v[k]!==undefined)r[k]=canonical(v[k]);return r;},{});return v;}
   function create(config,deps){
@@ -1871,7 +1932,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function restrictions(id,operation,signal){return request('/rest/api/content/'+id+'/restriction/byOperation/'+operation+'?expand=restrictions.user,restrictions.group&limit=200',null,undefined,signal);}
     function restrictionRows(r,operation){if(!r||r.operation!==operation||!object(r.restrictions))fail('Confluence did not return verifiable native restrictions.','INVALID_PERMISSIONS');var users=r.restrictions.user,groups=r.restrictions.group;if(!users||!groups||!Array.isArray(users.results)||!Array.isArray(groups.results))fail('Confluence did not expand native restriction subjects.','INVALID_PERMISSIONS');if((users._links&&users._links.next)||(groups._links&&groups._links.next))fail('The restriction list is too large to verify safely.','PERMISSIONS_LIMIT');return {users:users.results,groups:groups.results};}
     async function boundaries(signal,reading){
-      var results=await Promise.all([page(rootId,signal),page(workingId,signal),request('/rest/api/space/'+encodeURIComponent(space)+'?expand=operations',null,undefined,signal)]);
+      var results=await Promise.all([storage.page(rootId,'space,ancestors,version,operations',options(signal)).then(function(p){return assertPage(p);}),storage.page(workingId,'space,ancestors,version,operations',options(signal)).then(function(p){return assertPage(p);}),request('/rest/api/space/'+encodeURIComponent(space)+'?expand=operations',null,undefined,signal)]);
       if(results[2].key!==space||results[2].operations!=null&&!Array.isArray(results[2].operations))fail('Confluence space permissions could not be verified.','INVALID_PERMISSIONS');
       var privacyError=null,protectedBy=null;
       try{
@@ -1918,11 +1979,30 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       return {state:result,document:d,people:value.people,media:value.media||{}};
     }
     async function children(signal){
-      var out=[],start=0;
+      var out=[],start=0,search=false,seen=new Set();
+      // Avoid body and nested content-property expansion on the child collection.
+      // Some DC installations reject these expansions with HTTP 500. Fetch the
+      // exact working document only after its summary matches the current user.
+      var expand='space,ancestors,version,operations';
+      var cql='type = page AND space = "'+space+'" AND parent = '+workingId+' ORDER BY id ASC';
       while(out.length<maxPages){
-        var response=await request('/rest/api/content/'+workingId+'/child/page?limit=50&start='+start+'&expand='+encodeURIComponent('space,ancestors,version,operations,body.storage,metadata.properties.'+SUMMARY),null,undefined,signal);
-        if(!response||!Array.isArray(response.results)||response.results.length>50)fail('Confluence returned an invalid workspace listing.','INVALID_RESPONSE');
-        response.results.forEach(function(p){assertPage(p,workingId);out.push(p);});
+        var response,limit=Math.min(50,maxPages-out.length);
+        try{
+          var path=search?'/rest/api/content/search?cql='+encodeURIComponent(cql):'/rest/api/content/'+workingId+'/child/page?';
+          response=await request(path+(search?'&':'')+'limit='+limit+'&start='+start+'&expand='+encodeURIComponent(expand),null,undefined,signal);
+        }catch(error){
+          aborted(signal);
+          // Never turn denied access, missing parents or an aborted request into
+          // a search. Restart once on unsupported/failed collection endpoints.
+          if(!search&&([400,405,501].includes(error.status)||(error.status>=500&&error.status<=599))){search=true;out=[];seen.clear();start=0;continue;}
+          throw error;
+        }
+        if(!response||!Array.isArray(response.results)||response.results.length>limit)fail('Confluence returned an invalid workspace listing.','INVALID_RESPONSE');
+        for(var p of response.results){
+          assertPage(p,workingId);var id=numeric(p.id);
+          if(seen.has(id))fail('Workspace pagination repeated a page. Retry after the listing has settled.','INVALID_RESPONSE');
+          seen.add(id);out.push(p);
+        }
         var more=response._links&&response._links.next;if(!more)return out;
         if(!response.results.length)fail('Workspace pagination did not advance.','INVALID_RESPONSE');start+=response.results.length;
       }
@@ -1932,15 +2012,33 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function capabilities(input){
       input=input||{};var ctx=await contextFor(input,input.signal,true);return {rootPageId:rootId,workingRootPageId:workingId,identity:ctx.dir.who,code:ctx.bounds.creationCode,canCreateDocument:ctx.bounds.draftsProtected&&ctx.bounds.canCreate&&E.hasGrant(ctx.policy,ctx.dir.who,'content.create','*'),reason:ctx.bounds.creationMessage||(!ctx.bounds.canCreate?'Confluence space Add page permission is required.':!E.hasGrant(ctx.policy,ctx.dir.who,'content.create','*')?'The WCSpedia document creation grant is required.':'')};
     }
-    async function load(input){
-      input=input||{};var signal=input.signal,ctx=await contextFor(input,signal,true);
+    async function load(input){return loadWithContext(input,null);}
+    async function loadWithContext(input,verifiedContext){
+      input=input||{};var signal=input.signal,scope=input.workspaceScope||'all';
+      if(!['all','create','mine','review'].includes(scope)&&!/^document:[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(scope))fail('Choose a supported workspace view.','CONFIGURATION');
+      var ctx=verifiedContext||await contextFor(input,signal,true);
       if(input.skipDocuments)return Object.assign({},ctx.access,{data:Object.assign({},ctx.catalog,{people:ctx.dir.people,documents:[],isDemo:false}),actorId:ctx.dir.actor.id,actor:ctx.dir.actor,identity:ctx.dir.who,entitlementPolicy:ctx.policy,mode:'confluence',authoringMode:'confluence-session',identityMapped:true,workspaceLoaded:false,discoveryOnly:false,attachmentVersion:1,attachmentId:null,canWriteAttachment:false,canSubmit:false});
-      var rows=await children(signal),pending=[];
+      // A new editor needs permissions/directory only. Detail views resolve one
+      // stable native title; never enumerate or download unrelated documents.
+      var rows=[],pending=[];
+      if(scope.startsWith('document:')){var documentKey=key(scope.slice(9)),target=await findSeed('WCSpedia working '+documentKey,'wcs-document-'+documentKey,signal);if(target)rows=[target];}
+      else if(scope!=='create')rows=await children(signal);
       var entries=await parallel(rows,async function(p){
         var props=p.metadata&&p.metadata.properties,summary=props&&props[SUMMARY];if(!summary)summary=await storage.property(p.id,SUMMARY,options(signal));
         if(!summary||!summary.value||summary.value.schemaVersion!==1)return null;
         if(ctx.dir.actor.role!=='Manager'&&!(summary.value.people||[]).includes(ctx.dir.actor.id))return null;
-        var item=await readState(p,signal),journal=await storage.property(p.id,JOURNAL,options(signal));
+        var people=summary.value.people,actorId=ctx.dir.actor.id;
+        if(Array.isArray(people)&&people.length===4){
+          if(scope==='mine'&&!people.slice(0,2).includes(actorId))return null;
+          if(scope==='review'&&!((summary.value.status==='In review'&&people[2]===actorId)||(summary.value.status==='Awaiting approval'&&people[3]===actorId)))return null;
+        }
+        // Journal and page/state reads are independent. All mutation checks still
+        // use freshly read native state in submit(), never a listing summary.
+        var journalRead=storage.property(p.id,JOURNAL,options(signal));
+        var itemRead=(async function(){
+        if(!p.body||!p.body.storage||typeof p.body.storage.value!=='string')p=await page(p.id,signal,workingId);
+        return readState(p,signal);})();
+        var pair=await Promise.all([itemRead,journalRead]),item=pair[0],journal=pair[1];
         if(journal&&journal.value&&!journal.value.done)pending.push({documentKey:summary.value.documentKey,requestId:journal.value.requestId,action:journal.value.action});
         return item.document?Object.assign(item,{page:p,pending:!!(journal&&journal.value&&!journal.value.done)}):null;
       });
@@ -1952,10 +2050,10 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(effective['content.create']&&!nativePermissions.root.some(function(o){return o.operation==='create'&&o.targetType==='page';}))nativePermissions.root=nativePermissions.root.concat([{operation:'create',targetType:'page'}]);
       var data=Object.assign({},ctx.catalog,{people:ctx.dir.people,documents:documents,isDemo:false});
       var actorId=ctx.dir.actor.id,assigned=entries.some(function(e){return [e.document.authorId,e.document.reviewerId,e.document.approverId].includes(actorId)&&op(e.page,'update');});
-      return Object.assign({},ctx.access,{data:data,actorId:actorId,actor:ctx.dir.actor,identity:ctx.dir.who,entitlementPolicy:ctx.policy,mode:'confluence',authoringMode:'confluence-session',identityMapped:true,workspaceLoaded:true,discoveryOnly:false,attachmentVersion:1,attachmentId:null,canWriteAttachment:false,creationMessage:ctx.bounds.creationMessage,creationCode:ctx.bounds.creationCode,canSubmit:ctx.bounds.draftsProtected&&(effective['content.create']||assigned),nativePermissions:nativePermissions,effectivePermissions:effective,documentPermissions:permissions,nativePageVersions:versions,pendingOperations:pending,workflowMode:'cooperative-native'});
+      return Object.assign({},ctx.access,{data:data,actorId:actorId,actor:ctx.dir.actor,identity:ctx.dir.who,entitlementPolicy:ctx.policy,mode:'confluence',authoringMode:'confluence-session',identityMapped:true,workspaceLoaded:true,workspaceScope:scope,discoveryOnly:false,attachmentVersion:1,attachmentId:null,canWriteAttachment:false,creationMessage:ctx.bounds.creationMessage,creationCode:ctx.bounds.creationCode,canSubmit:ctx.bounds.draftsProtected&&(effective['content.create']||assigned),nativePermissions:nativePermissions,effectivePermissions:effective,documentPermissions:permissions,nativePageVersions:versions,pendingOperations:pending,workflowMode:'cooperative-native'});
     }
     async function assignments(doc,people,signal){
-      var ids=Array.from(new Set([doc.authorId,doc.reviewerId,doc.approverId]));
+      var ids=Array.from(new Set([doc.authorId,doc.reviewerId,doc.approverId].filter(Boolean)));
       var actors=await Promise.all(ids.map(async function(id){var p=people.find(function(x){return x.id===id;});if(!p)fail('Choose an available author, reviewer and manager.');var soeid=E.normalizeSOEID(p.soeid||(p.confluence||{}).username);if(!soeid)fail('Workflow assignments need valid SOEIDs.');var u=await request('/rest/api/user?username='+encodeURIComponent((p.confluence||{}).username||soeid),null,undefined,signal);if(!E.identity(u)||E.identity(u).soeid!==soeid)fail('An assigned person cannot be verified in Confluence.','IDENTITY_MAPPING');return {type:'known',username:u.username,userKey:u.userKey};}));
       return actors;
     }
@@ -1971,7 +2069,10 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function findSeed(title,marker,signal){
       var r=await request('/rest/api/content?type=page&spaceKey='+encodeURIComponent(space)+'&title='+encodeURIComponent(title)+'&limit=2&expand='+encodeURIComponent(EXPAND),null,undefined,signal);
       if(!r||!Array.isArray(r.results)||r.results.length>1)fail('A duplicate working-page identity needs administrator review.','CONFLICT');
-      if(!r.results.length)return null;var p=assertPage(r.results[0],workingId);if(!marked(p,marker))fail('The working-page title is already used by other content.','CONFLICT');return p;
+      if(!r.results.length)return null;
+      var p=assertPage(r.results[0],workingId);
+      if(!p.body||!p.body.storage||typeof p.body.storage.value!=='string')p=await page(p.id,signal,workingId);
+      if(p.title!==title||!marked(p,marker))fail('The working-page title is already used by other content.','CONFLICT');return p;
     }
     async function createPage(title,documentKey,kind,requestId,signal){
       var marker='wcs-document-'+documentKey,existing=await findSeed(title,marker,signal);
@@ -2019,11 +2120,12 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       function walk(v){if(typeof v==='string'){replacements.forEach(function(pair){v=v.split(pair[0]).join(pair[1]);});return v;}if(Array.isArray(v))return v.map(walk);if(object(v)){var n={};Object.keys(v).forEach(function(k){n[k]=walk(v[k]);});return n;}return v;}
       var result=walk(doc);result.versions.forEach(function(v){if(v.bodyMarkdown)v.sections=Content.toSections(v.bodyMarkdown);});return result;
     }
-    async function destination(doc,signal){var id=['Blog','Knowledge sharing','Reference'].includes(doc.type)?insightsId:areas[doc.area];if(!id)fail('Select a configured business-area destination.','INVALID_MAPPING');return page(id,signal,rootId);}
+    function publicationParent(doc){return Content.isDirectPublication(doc)||['Blog','Knowledge sharing','Reference'].includes(doc.type)?insightsId:areas[doc.area];}
+    async function destination(doc,signal){var id=publicationParent(doc);if(!id)fail('Select a configured business-area destination.','INVALID_MAPPING');return page(id,signal,rootId);}
     async function bodyWrite(p,document,media,kind,requestId,expectedParent,signal){
       if(marked(p,'wcs-operation-'+requestId))return p;
-      var initial=(p.body&&p.body.storage&&p.body.storage.value||'').match(/wcs-created-([a-zA-Z0-9-]{16,100})/);
-      var v=W.currentVersion(document),body=(initial?anchor('wcs-created-'+initial[1]):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true});
+      var initial=markers(p).find(function(value){return /^wcs-created-[a-zA-Z0-9-]{16,100}$/.test(value);});
+      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true});
       var suffix=' · WCS '+p.id;
       var title=kind==='published'?v.title.slice(0,250-suffix.length)+suffix:'WCSpedia working '+document.id;
       var response=await request('/rest/api/content/'+p.id,'PUT',{id:p.id,type:'page',title:title.slice(0,250),space:{key:space},ancestors:[{id:expectedParent}],version:{number:p.version.number+1,message:'WCSpedia '+kind+' '+v.status+' v'+v.version+' r'+v.revision+' · '+requestId},body:{storage:{representation:'storage',value:body}}},signal);
@@ -2051,7 +2153,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         return;
       }
       await destination(doc,signal);
-      if(!marked(pub,'wcs-document-'+doc.id)||parent(pub)!==(['Blog','Knowledge sharing','Reference'].includes(doc.type)?insightsId:areas[doc.area]))fail('The published page cannot be safely identified for deletion.','PAGE_SCOPE');
+      if(!marked(pub,'wcs-document-'+doc.id)||parent(pub)!==publicationParent(doc))fail('The published page cannot be safely identified for deletion.','PAGE_SCOPE');
       if(pub.version.number!==doc.publishedConfluencePageVersion)fail('The published page changed. Reconcile its native history before deletion.','CONFLICT');
       if(!op(pub,'delete'))fail('Confluence does not permit deleting the published page.','FORBIDDEN');
       await request('/rest/api/content/'+pub.id,'DELETE',undefined,signal);
@@ -2073,7 +2175,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var fingerprint=await digest(JSON.stringify(canonical(command)));
       if(creating){
         if(!ctx.bounds.canCreate||!E.hasGrant(ctx.policy,who,'content.create','*'))fail('Your account needs Add page permission and the WCSpedia creation grant.','FORBIDDEN');
-        if(!areas[command.fields.area]||!TYPES.includes(command.fields.type))fail('Choose a configured business area and content type.','INVALID_MAPPING');
+        if(Content.isInsightType(command.fields.type)&&!Content.isDirectPublication(command.fields))fail('Publish non-Job-aid content directly to Insights.','INVALID_MAPPING');
+        if((!areas[command.fields.area]&&!(Content.isDirectPublication(command.fields)))||!TYPES.includes(command.fields.type))fail('Choose a configured business area and content type.','INVALID_MAPPING');
         doc=W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:new Date().toISOString(),requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,create:true}});
         statePreflight(doc,ctx.dir.people);await Renderer.collectMedia(doc,W.currentVersion(doc),{media:{}});
         await assignments(doc,ctx.dir.people,signal);
@@ -2081,8 +2184,9 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       }else{
         var entry=(session.data.documents||[]).find(function(d){return d.id===documentKey;});if(!entry||!entry.confluencePageId)fail('Reload the document workspace before saving.','NOT_FOUND');p=await page(entry.confluencePageId,signal,workingId);state=await readState(p,signal);doc=state.document;if(!doc)fail('The working document metadata is unavailable.','INVALID_DATA');ctx.dir=directory(ctx.catalog,ctx.policy,ctx.user,state.people);actor=ctx.dir.actor;
       }
+      if(Content.isInsightType(doc.type)&&!['create','edit','revise','delete'].includes(command.action))fail('This content publishes directly to Insights; open it in the editor to publish.','INVALID_ACTION');
       var journal=await storage.property(p.id,JOURNAL,options(signal));
-      if(journal&&journal.value&&journal.value.requestId===requestId){if(journal.value.fingerprint!==fingerprint||journal.value.actorSOEID!==who.soeid)fail('This request ID was already used for another action.','CONFLICT');if(journal.value.done)return load({catalog:ctx.catalog,signal:signal});}
+      if(journal&&journal.value&&journal.value.requestId===requestId){if(journal.value.fingerprint!==fingerprint||journal.value.actorSOEID!==who.soeid)fail('This request ID was already used for another action.','CONFLICT');if(journal.value.done)return loadWithContext({catalog:ctx.catalog,signal:signal,workspaceScope:'document:'+documentKey},ctx);}
       else if(journal&&journal.value&&!journal.value.done)fail('Another operation is unfinished. Retry that original action before making a new change.','WRITE_PENDING');
       else{
         if(!op(p,'update'))fail('Confluence does not permit updating this working page.','FORBIDDEN');
@@ -2094,11 +2198,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         var relevantIds=new Set([doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId,actor.id].concat((doc.audit||[]).map(function(e){return e.actorId;})));
         var snapshotPeople=ctx.dir.people.filter(function(person){return relevantIds.has(person.id);});
         if(!creating)statePreflight(W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:at,effectiveAt:at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,comment:command.comment,requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')}}),snapshotPeople);
-        journal=await storage.putProperty(p.id,JOURNAL,{schemaVersion:1,requestId:requestId,fingerprint:fingerprint,actorSOEID:who.soeid,documentKey:documentKey,action:command.action,at:at,people:snapshotPeople,expectedNativeVersion:p.version.number,priorStateRevision:state.state.revision,priorAttachmentVersion:state.state.attachmentVersion||0,priorFingerprint:state.state.fingerprint,stage:'reserved',done:false},journal?journal.version.number:null,options(signal));
+        journal=await storage.putProperty(p.id,JOURNAL,{schemaVersion:1,requestId:requestId,fingerprint:fingerprint,actorSOEID:who.soeid,documentKey:documentKey,action:command.action,at:at,people:snapshotPeople,expectedNativeVersion:p.version.number,priorPublishedParentId:publicationParent(doc),priorStateRevision:state.state.revision,priorAttachmentVersion:state.state.attachmentVersion||0,priorFingerprint:state.state.fingerprint,stage:'reserved',done:false},journal?journal.version.number:null,options(signal));
       }
       async function checkpoint(changes){journal=await storage.putProperty(p.id,JOURNAL,Object.assign({},journal.value,changes),journal.version.number,options(signal));}
       var j=journal.value;
-      if(state.document&&state.document.lastRequestId===requestId){await ensureSummary(p,state.document,signal);await checkpoint({done:true,stage:'complete'});return load({catalog:ctx.catalog,signal:signal});}
+      if(state.document&&state.document.lastRequestId===requestId){await ensureSummary(p,state.document,signal);await checkpoint({done:true,stage:'complete'});return loadWithContext({catalog:ctx.catalog,signal:signal,workspaceScope:'document:'+documentKey},ctx);}
       if(state.state.revision!==j.priorStateRevision&&!(state.state.pointer&&state.state.pointer.pending&&state.state.pointer.pending.requestId===requestId&&state.state.pointer.pending.expectedRevision===j.priorStateRevision))fail('The document state changed while this action was pending.','CONFLICT');
       if(['request-changes','complete-review','approve'].includes(command.action)&&actor.role==='Reader')fail('Your active review role is no longer available.','FORBIDDEN');
       var permissionContext={actorId:actor.id,documentId:documentKey,create:creating,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')};
@@ -2109,12 +2213,12 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var media=await stageMedia(doc,p,state.media||{},p.id,signal);doc._people=j.people||ctx.dir.people;
       if(marked(p,'wcs-operation-'+requestId)?p.version.number!==j.expectedNativeVersion+1:p.version.number!==j.expectedNativeVersion)fail('The native working page changed during this operation.','CONFLICT');
       if(command.action!=='delete')p=await bodyWrite(p,doc,media,'working',requestId,workingId,signal);
-      if(command.action==='approve'){
+      if(command.action==='approve'||(Content.isDirectPublication(doc)&&['create','edit','revise'].includes(command.action))){
         var dest=await destination(doc,signal),publishedId=doc.publishedConfluencePageId||j.publishedPageId,published;
-        if(publishedId){published=await page(publishedId,signal);if(parent(published)!==dest.id&&parent(published)!==workingId)fail('The published page was moved.','PAGE_SCOPE');if(!marked(published,'wcs-document-'+documentKey))fail('The published document identity changed.','PAGE_SCOPE');if(!op(published,'update'))fail('Confluence does not permit updating the published page.','FORBIDDEN');if(doc.publishedConfluencePageId&&!j.expectedPublishedVersion&&!journal.value.expectedPublishedVersion&&published.version.number!==doc.publishedConfluencePageVersion)fail('The published page changed outside this workflow. Reconcile its native history before approving.','CONFLICT');}
+        if(publishedId){published=await page(publishedId,signal);if(parent(published)!==dest.id&&parent(published)!==workingId&&!(Content.isDirectPublication(doc)&&parent(published)===journal.value.priorPublishedParentId))fail('The published page was moved.','PAGE_SCOPE');if(!marked(published,'wcs-document-'+documentKey))fail('The published document identity changed.','PAGE_SCOPE');if(!op(published,'update'))fail('Confluence does not permit updating the published page.','FORBIDDEN');if(doc.publishedConfluencePageId&&!j.expectedPublishedVersion&&!journal.value.expectedPublishedVersion&&published.version.number!==doc.publishedConfluencePageVersion)fail('The published page changed outside this workflow. Reconcile its native history before approving.','CONFLICT');}
         else{if(!ctx.bounds.canCreate)fail('Publishing needs your Confluence space Add page permission.','FORBIDDEN');published=await createPage('WCSpedia publication '+documentKey,documentKey,'published',requestId,signal);await checkpoint({publishedPageId:published.id,expectedPublishedVersion:published.version.number,stage:'publication-created'});}
         if(!j.expectedPublishedVersion&&!journal.value.expectedPublishedVersion)await checkpoint({publishedPageId:published.id,expectedPublishedVersion:published.version.number,stage:'publication-prepared'});
-        var approver=users.find(function(u){return E.normalizeSOEID(u.username)===who.soeid;});if(!approver)fail('Only the assigned manager can publish.','FORBIDDEN');
+        var approver=users.find(function(u){return E.normalizeSOEID(u.username)===who.soeid;});if(!approver)fail('Only an assigned publisher can publish.','FORBIDDEN');
         await restrictUpdate(published,[approver],signal);
         var publishedMedia=await stageMedia(doc,published,{},p.id,signal);
         if(marked(published,'wcs-operation-'+requestId)?published.version.number!==journal.value.expectedPublishedVersion+1:published.version.number!==journal.value.expectedPublishedVersion)fail('The published page changed during approval.','CONFLICT');
@@ -2129,7 +2233,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       await storage.writeJSON(p.id,FILE,STATE,{schemaVersion:1,document:doc,people:j.people||ctx.dir.people,media:media},{expectedRevision:j.priorStateRevision,expectedAttachmentVersion:j.priorAttachmentVersion,expectedFingerprint:j.priorFingerprint,requestId:requestId,signal:signal});
       await ensureSummary(p,doc,signal);
       await checkpoint({done:true,stage:'complete'});
-      return load({catalog:ctx.catalog,signal:signal});
+      return loadWithContext({catalog:ctx.catalog,signal:signal,workspaceScope:'document:'+documentKey},ctx);
     }
     return Object.freeze({load:load,submit:submit,capabilities:capabilities});
   }
@@ -2151,6 +2255,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   else root.WCSConfluence = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
   'use strict';
+  function directPublication(doc) { var content = root.WCSEditorContent || (typeof require === 'function' ? require('./editor-content.js') : null); return !!content && content.isDirectPublication(doc); }
   var STATUSES = ['Draft', 'In review', 'Changes requested', 'Awaiting approval', 'Published'];
   var ACTIONS = ['create', 'edit', 'delete', 'submit', 'request-changes', 'complete-review', 'approve', 'revise', 'add-category'];
   var PUBLICATION_ACTIONS = ['create', 'edit', 'revise', 'approve'];
@@ -2312,8 +2417,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if (readerPageId && mappedPages.has(readerPageId)) fail('Working and published documents require distinct native page mappings.', 'INVALID_MAPPING');
       if (readerPageId) mappedPages.add(readerPageId);
       ['confluencePageVersion', 'publishedConfluencePageVersion'].forEach(function (field) { if (doc[field] != null && !integer(doc[field])) fail('Invalid native page version for document ' + doc.id + '.', 'INVALID_MAPPING'); });
-      if (!text(doc.reference) || !text(doc.type) || !areas.has(doc.area)) fail('Invalid document reference, type or business area.');
-      ['ownerId', 'authorId', 'reviewerId', 'approverId'].forEach(function (field) { if (!people.has(doc[field])) fail('Invalid document ' + field + '.'); });
+      if (!text(doc.reference) || !text(doc.type) || (!areas.has(doc.area)&&!(directPublication(doc)))) fail('Invalid document reference, type or business area.');
+      (directPublication(doc)?['ownerId','authorId']:['ownerId', 'authorId', 'reviewerId', 'approverId']).forEach(function (field) { if (!people.has(doc[field])) fail('Invalid document ' + field + '.'); });
       if (!Array.isArray(doc.versions) || !doc.versions.length || !Array.isArray(doc.audit)) fail('Document versions and audit history are required.');
       var numbers = new Set();
       doc.versions.forEach(function (version) {
@@ -2451,7 +2556,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var catalog = root.WCSDiscoveryCatalog || dependencies.catalog;
       if (!catalog) fail('Load the matching page bundle with its navigation catalogue.', 'CONFIGURATION');
       last = await nativeWorkflow().load({ user: user, policy: access.entitlementPolicy, access: access, catalog: clone(catalog), signal: options.signal,
-        skipDocuments: ['entitlements', 'saved'].indexOf(config.pageRole) >= 0 });
+        workspaceScope: options.workspaceScope || 'all', skipDocuments: ['entitlements', 'saved'].indexOf(config.pageRole) >= 0 });
       validateData(last.data);
       accessLast = clone(last);
       return clone(last);
@@ -2574,18 +2679,45 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       return { pages: Array.from(new Set(pages.concat(trees))), trees: Array.from(new Set(trees)) };
     }
     function endpoint(path) { return new URL(context + path, origin); }
+    var responseReads = new WeakMap();
+    var requestTimeoutMs = config.requestTimeoutMs == null ? 12000 : config.requestTimeoutMs;
+    if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 60000) fail('Use a requestTimeoutMs between 1 and 60000.', 'CONFIGURATION');
+    async function boundedRequest(task, signal, mutation, cancel) {
+      if (signal && signal.aborted && cancel) cancel();
+      throwIfAborted(signal);
+      var controller = new AbortController(), timer, onAbort;
+      var stopped = new Promise(function (_, reject) {
+        function stop(external) {
+          var error = new Error(mutation ? 'The write outcome is unknown. Check the original save before retrying.' : external ? 'The request was cancelled.' : 'Confluence took too long to respond. Your unsaved content is kept; try again.');
+          if (mutation) error.code = 'UNKNOWN_COMMIT'; else if (external) error.name = 'AbortError'; else error.code = 'TIMEOUT';
+          reject(error); controller.abort(); if (cancel) cancel();
+        }
+        timer = setTimeout(function () { stop(false); }, mutation ? 60000 : requestTimeoutMs);
+        onAbort = function () { stop(true); };
+        if (signal) signal.addEventListener('abort', onAbort, {once:true});
+      });
+      try { return await Promise.race([Promise.resolve().then(function () { throwIfAborted(controller.signal); return task(controller); }), stopped]); }
+      finally { clearTimeout(timer); if (signal) signal.removeEventListener('abort', onAbort); }
+    }
     async function request(url, options) {
       var settings = Object.assign({ method: 'GET', credentials: 'same-origin', mode: 'same-origin', redirect: 'error', cache: 'no-store', headers: { Accept: 'application/json' } }, options || {});
-      var response;
-      try { response = await fetcher(url.href || String(url), settings); }
-      catch (error) { if (error && error.name === 'AbortError') throw error; fail('Confluence could not be reached. Check your connection and session.', 'NETWORK'); }
+      var response, controller, parentSignal = settings.signal, mutation = !['GET','HEAD'].includes(settings.method.toUpperCase());
+      try { response = await boundedRequest(function (pending) { controller = pending; settings.signal = pending.signal; return fetcher(url.href || String(url), settings); }, parentSignal, mutation); }
+      catch (error) { if (error && (error.code || error.name === 'AbortError')) throw error; fail(mutation ? 'The write outcome is unknown. Check the original save before retrying.' : 'Confluence could not be reached. Check your connection and session.', mutation ? 'UNKNOWN_COMMIT' : 'NETWORK'); }
       if (!response.ok) {
         var error = new Error(response.status === 401 || response.status === 403 ? 'Your Confluence session does not have access to this resource.' : response.status === 409 ? 'This content changed. Reload before continuing.' : response.status === 413 ? 'Confluence rejected the upload as too large. Each attachment must be at most 10 MB; this operation may have a smaller limit.' : 'Confluence request failed (' + response.status + ').');
         error.code = response.status === 409 ? 'CONFLICT' : response.status === 413 ? 'ATTACHMENT_TOO_LARGE' : 'HTTP_ERROR'; error.status = response.status; throw error;
       }
+      responseReads.set(response, {signal:parentSignal, mutation:mutation, controller:controller});
       return response;
     }
     async function json(response, options) {
+      var pending = responseReads.get(response);
+      responseReads.delete(response);
+      if (!pending) return parseJSON(response, options);
+      return boundedRequest(function () { return parseJSON(response, options); }, pending.signal, pending.mutation, function () { pending.controller.abort(); });
+    }
+    async function parseJSON(response, options) {
       options = options || {};
       var limit = options.limit || MAX_JSON;
       var value;
@@ -3695,6 +3827,63 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
 ;
+/* Shared page scroll control. Uses the existing Confluence scroll owner; no
+ * nested scroll box, network requests or hash navigation. Inline SVG adapted
+ * from the user's CodeFronts progress-ring example. */
+(function(win){
+  'use strict';
+  if(!win||win.WCSScrollTools)return;
+  var doc=win.document,instance;
+  function mount(){
+    if(instance){instance.refresh();return instance;}
+    if(!doc.body)return null;
+    var button=doc.getElementById('wcs-back-to-top');if(button)button.remove();
+    button=doc.createElement('button');button.id='wcs-back-to-top';button.type='button';button.hidden=true;
+    button.setAttribute('aria-label','Back to top');button.title='Back to top';button.dataset.wcsScrollControl='';
+    button.innerHTML='<svg class="wcs-scroll-ring-svg" viewBox="0 0 52 52" aria-hidden="true" focusable="false"><circle class="wcs-scroll-track" cx="26" cy="26" r="22" fill="none" stroke-width="3.5"/><circle class="wcs-scroll-ring" cx="26" cy="26" r="22" fill="none" stroke-width="3.5" stroke-linecap="round"/></svg><svg class="wcs-scroll-arrow" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V6M6 12l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    doc.body.append(button);
+    var frame=null,disposed=false,pane=null,content=null,resize=null,mutations=null;
+    function primary(){return doc.querySelector('#wcspedia')||doc.querySelector('#main-content')||doc.querySelector('.wiki-content')||doc.querySelector('main')||doc.body;}
+    function owner(node){
+      for(var el=node;el&&el!==doc.body&&el!==doc.documentElement;el=el.parentElement){
+        if(/^(auto|scroll)$/.test(win.getComputedStyle(el).overflowY)&&el.scrollHeight>el.clientHeight)return el;
+      }
+      return doc.scrollingElement||doc.documentElement;
+    }
+    function rootPane(el){return el===doc.scrollingElement||el===doc.documentElement||el===doc.body;}
+    function modal(){return Array.from(doc.querySelectorAll('[aria-modal="true"]')).some(function(el){return !el.hidden&&el.getClientRects().length;});}
+    function update(){
+      frame=null;if(disposed)return;
+      var nextContent=primary(),nextPane=owner(nextContent);
+      if(content!==nextContent||pane!==nextPane){content=nextContent;pane=nextPane;if(resize){resize.disconnect();resize.observe(content);if(pane!==content)resize.observe(pane);}}
+      var top=rootPane(pane)?Math.max(win.scrollY||0,pane.scrollTop||0):pane.scrollTop;
+      var max=Math.max(0,pane.scrollHeight-(rootPane(pane)?doc.documentElement.clientHeight||win.innerHeight:pane.clientHeight));
+      var progress=max?Math.min(1,Math.max(0,top/max)):0;
+      button.style.setProperty('--wcs-scroll-progress',progress.toFixed(4));
+      button.hidden=!max||progress<=0.08||modal();
+    }
+    function schedule(){if(!disposed&&frame===null)frame=win.requestAnimationFrame(update);}
+    function toTop(){
+      if(modal())return;
+      pane=owner(primary());var behavior=win.matchMedia&&win.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth';
+      if(rootPane(pane))win.scrollTo({top:0,behavior:behavior});else if(pane.scrollTo)pane.scrollTo({top:0,behavior:behavior});else pane.scrollTop=0;
+      var heading=primary().querySelector('h1,h2');
+      if(heading){var added=!heading.hasAttribute('tabindex');if(added){heading.setAttribute('tabindex','-1');heading.addEventListener('blur',function cleanup(){heading.removeAttribute('tabindex');},{once:true});}heading.focus({preventScroll:true});}
+      schedule();
+    }
+    button.addEventListener('click',toTop);
+    doc.addEventListener('scroll',schedule,{capture:true,passive:true});win.addEventListener('scroll',schedule,{passive:true});win.addEventListener('resize',schedule,{passive:true});win.addEventListener('pageshow',schedule);
+    if(win.visualViewport)win.visualViewport.addEventListener('resize',schedule,{passive:true});
+    if(win.ResizeObserver)resize=new win.ResizeObserver(schedule);
+    // Only structural changes: writing progress styles does not trigger this.
+    if(win.MutationObserver){mutations=new win.MutationObserver(schedule);mutations.observe(doc.body,{childList:true,subtree:true});}
+    instance={refresh:schedule,destroy:function(){disposed=true;if(frame!==null)win.cancelAnimationFrame(frame);if(resize)resize.disconnect();if(mutations)mutations.disconnect();doc.removeEventListener('scroll',schedule,true);win.removeEventListener('scroll',schedule);win.removeEventListener('resize',schedule);win.removeEventListener('pageshow',schedule);if(win.visualViewport)win.visualViewport.removeEventListener('resize',schedule);button.remove();instance=null;}};
+    update();return instance;
+  }
+  win.WCSScrollTools={mount:mount};
+})(typeof window!=='undefined'?window:null);
+
+;
 /* Standalone Confluence navigation widget. Authorization is supplied by the
  * shared entitlement resolver; this component never infers a user or a role. */
 (function (root, factory) {
@@ -3760,7 +3949,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     if (!host || host.nodeType !== 1 || !host.ownerDocument) throw new TypeError('A widget host element is required.');
     if (instances.has(host)) { var existing = instances.get(host); existing.update(initialOptions || {}); return existing; }
     var doc = host.ownerDocument, win = doc.defaultView, options = Object.assign({}, initialOptions), destroyed = false;
-    var generation = 0, allowed = false, panel = null, types = [], id = 'wcs-add-document-' + (++sequence), handle, pendingVerification = null, pendingIntent = null;
+    var generation = 0, allowed = false, panel = null, types = [], id = 'wcs-add-document-' + (++sequence), handle, pendingVerification = null, pendingIntent = null, accessCheckedAt = 0, accessRefresh = null;
     var shell = doc.createElement('div'), trigger = doc.createElement('button');
     host.setAttribute('data-wcs-add-document-host', '');
     shell.className = 'wcs-add-document'; trigger.type = 'button'; trigger.className = 'wcs-add-document-trigger';
@@ -3822,7 +4011,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var rect = trigger.getBoundingClientRect(), view = win.visualViewport;
       var width = view ? view.width : win.innerWidth, height = view ? view.height : win.innerHeight, pad = 12, gap = 8;
       panel.style.maxWidth = Math.max(0, width - pad * 2) + 'px';
-      panel.style.maxHeight = Math.max(48, height - Math.max(pad, rect.bottom + gap) - pad) + 'px';
+      var above=Math.max(0,rect.top-gap-pad),below=Math.max(0,height-rect.bottom-gap-pad);
+      panel.style.maxHeight = Math.max(48, Math.max(above,below)) + 'px';
       var size = panel.getBoundingClientRect(), left = Math.max(pad, Math.min(rect.right - size.width, width - size.width - pad));
       var top = rect.bottom + gap;
       if (top + size.height > height - pad && rect.top - size.height - gap >= pad) top = rect.top - size.height - gap;
@@ -3868,7 +4058,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           close(false);
           var intent = beginIntent();
           try {
-            if (!await verify(true) || !intent.active) return;
+            if (!await navigationAccess() || !allowed || !intent.active) return;
             var target = destination(options.createUrl, type, win.location.href);
             if (typeof options.navigate === 'function') {
               if (await options.navigate(target, type.value) === false) {
@@ -3917,36 +4107,61 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         } catch (error) { finish(error); }
       });
     }
-    async function verify(interactive) {
+    async function verify(interactive, background) {
       function feedback(message, type) { if (interactive && !destroyed) win.WCSNotifications?.show(message, {type: type}); }
       var request = ++generation;
       if (pendingVerification) pendingVerification();
       var visibleCheck = interactive && allowed && !host.hidden;
-      allowed = false; state(visibleCheck ? 'checking' : 'loading', 'Checking access…');
+      if (!background) { allowed = false; state(visibleCheck ? 'checking' : 'loading', 'Checking access…'); }
       try {
         if (typeof options.unavailableMessage === 'string' && options.unavailableMessage.trim()) {
           close(false); state('unavailable', options.unavailableMessage.trim()); feedback(options.unavailableMessage.trim(), 'warning'); return false;
         }
         var result = await checkPermission();
         if (destroyed || request !== generation) return false;
-        if (result !== true) { close(false); state('denied', 'Not permitted'); feedback('You do not have permission to add documents.', 'warning'); return false; }
+        if (result !== true) { allowed = false; close(false); state('denied', 'Not permitted'); feedback('You do not have permission to add documents.', 'warning'); return false; }
         if (!types.length) { close(false); state('error', 'Content types are unavailable.'); feedback('Content types are unavailable.', 'error'); return false; }
         // Validate every configured route before exposing an enabled menu.
         types.forEach(function (type) { destination(options.createUrl, type, win.location.href); });
-        allowed = true; state('ready'); return true;
+        allowed = true; accessCheckedAt = Date.now(); state('ready'); return true;
       } catch (error) {
         if (!destroyed && request === generation) {
+          allowed = false;
           var message = error && error.message || 'Access could not be verified. Try again.';
           close(false); state('error', message, error && error.code); feedback(message, 'error');
         }
         return false;
       }
     }
+    // This hint opens navigation only; the destination and every mutation still
+    // perform their own native permission checks. Never persist it across pages.
+    function refreshNavigationAccess() {
+      if (destroyed || accessRefresh) return accessRefresh;
+      if (pendingVerification) return handle && handle.pending;
+      var pending = verify(false, allowed);
+      accessRefresh = pending;
+      pending.finally(function () { if (accessRefresh === pending) accessRefresh = null; });
+      return pending;
+    }
+    function navigationAccess() {
+      if (options.reuseNavigationAccess !== true) return verify(true);
+      if (allowed) {
+        if (Date.now() - accessCheckedAt >= 60000) refreshNavigationAccess();
+        return Promise.resolve(true);
+      }
+      return refreshNavigationAccess();
+    }
+    function resume() {
+      if (options.reuseNavigationAccess !== true || doc.visibilityState === 'hidden' || destroyed) return;
+      if (!allowed || Date.now() - accessCheckedAt >= 60000) refreshNavigationAccess();
+    }
+    doc.addEventListener('visibilitychange', resume);
+    win.addEventListener('focus', resume);
     async function toggle(last) {
       if (trigger.disabled) return;
       if (panel) { close(true); return; }
       var intent = beginIntent();
-      try { if (await verify(true) && intent.active) { finishIntent(intent); open(last); } }
+      try { if (await navigationAccess() && allowed && intent.active) { finishIntent(intent); open(last); } }
       finally { finishIntent(intent); }
     }
     function onClick(event) { event.preventDefault(); event.stopPropagation(); toggle(false); }
@@ -3956,12 +4171,12 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       get ready() { return handle.pending; },
       update:function (next) {
         if (destroyed) return Promise.resolve(false);
-        cancelIntent(pendingIntent); close(false); options = Object.assign({}, options, next || {}); types = contentTypes(options.types);
+        accessCheckedAt = 0; accessRefresh = null; cancelIntent(pendingIntent); close(false); options = Object.assign({}, options, next || {}); types = contentTypes(options.types);
         handle.pending = verify(); return handle.pending;
       },
       destroy:function () {
         if (destroyed) return;
-        destroyed = true; generation++; cancelIntent(pendingIntent); if (pendingVerification) pendingVerification(); close(false); trigger.removeEventListener('click', onClick); trigger.removeEventListener('keydown', onKey);
+        destroyed = true; doc.removeEventListener('visibilitychange', resume); win.removeEventListener('focus', resume); generation++; cancelIntent(pendingIntent); if (pendingVerification) pendingVerification(); close(false); trigger.removeEventListener('click', onClick); trigger.removeEventListener('keydown', onKey);
         shell.remove(); host.replaceChildren(); host.hidden = true; host.style.setProperty('display', 'none', 'important'); instances.delete(host);
       }
     };
@@ -3971,5 +4186,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: 'b76b4fbf7a16', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument };
+  registry.addDocument = { version: '090f0eb8c44e', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument };
 })();

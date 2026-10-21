@@ -6,9 +6,13 @@ Use only `WCSpedia-configured-upload.zip`, which expands to one `confluence-read
 
 1. Upload all files from `attachments/` to **3962195316**, replacing files with the same names.
 2. In your existing **navBar** page, remove the old WCSpedia Add document macros, WCSpedia stylesheet links, notifications and article-helper script fragments. Keep your navigation, native Create control and site font/theme CSS.
-3. Paste **`html/wcspedia-navbar.html` once** into an HTML macro in the header. The Add document control floats at the top right, 12px below the navbar. This includes the single stylesheet, Add document pair, notifications and scoped child-article helpers. Keep `{include:wcspedia:navBar}`.
+3. Paste **`html/wcspedia-navbar.html` once** into an HTML macro in the header. The Add document control sits at the bottom right, directly above the progress-ring Back to top control. Both load on every page containing the shared header, including native child articles. This includes the single stylesheet, Add document/scroll-control pair, notifications and scoped child-article helpers. Keep `{include:wcspedia:navBar}`.
 4. Replace each interface page's macro with its matching `html/wcspedia-*.html` fragment, using the page-ID table below. Do not paste the navbar fragment into those pages.
 5. Publish and hard-refresh. The attachment URLs have no `&v=` cache suffix. No config attachment or standalone widget stylesheet is needed.
+
+**Publishing rule:** Job aids alone need a business area, reviewer and manager approval. All other supported types publish directly to Insights (3961735728). Their editor hides workflow fields, and Insights lists every supported non-Job-aid type. Existing non-Job-aid history is retained; an explicit authorized save adopts Insights routing. Updated MDX templates use Guide / Insights. No live JSON or page-ID changes are required.
+
+This update removes repeated Add document access reads when opening the menu and choosing a type. Returning after idle refreshes the navigation hint in the background. Editor/save permission checks remain fresh. It also bounds stalled JSON requests and clears detached editor dialogs without discarding drafts or unlocking uncertain saves. After replacing the attachments, close and reopen old WCSpedia tabs so they stop running the previous scripts. No JSON or page-ID changes are needed.
 
 All IDs are prefilled. Page fragments contain no document/header/font wrappers. Duplicate current header mounts are collapsed to one; remove older manually written buttons or inline widget styles during step 2.
 
