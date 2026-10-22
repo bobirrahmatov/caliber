@@ -1,4 +1,4 @@
-/* Shared-header presentation helper. Uses the existing Citi theme's body classes.
+/* Shared-header presentation helper. Uses the existing Citi theme's documented style functions.
  * No network requests, saved preferences or permission changes. Shared CSS
  * supplies narrowly scoped native-chrome rules on marked article views.
  * Child documents opt in with the wcs-page-style-v1 native Anchor or an explicit
@@ -12,7 +12,7 @@
   var interfaceRoot = '#wcspedia';
   var excluded = 'pre, code, textarea, [contenteditable="true"], .mce-content-body, #editor, #content-editor, #macro-browser, .macro-preview, [data-wcs-style-flags-ignore]';
   var editor = '#editpageform, #wysiwygTextarea, #content-editor, body.contenteditor';
-  var owned = Object.create(null), markers = [], observer = null, timer = null;
+  var owned = Object.create(null), applied = Object.create(null), markers = [], observer = null, timer = null;
   var booting = false, queued = false, suspended = false, destroyed = false;
 
   function isPageView() {
@@ -52,9 +52,20 @@
     return optedOut ? [] : flags.filter(function (flag) { return requested[flag]; });
   }
 
+  function removeFlags(values) {
+    var native = values.filter(function (flag) { return applied[flag]; });
+    if (native.length && typeof window.citiStyleRemove === 'function') {
+      try { window.citiStyleRemove.apply(window, native); }
+      catch (error) { window.console.warn('[WCSpedia styling] Citi style removal failed.', error); }
+    }
+    values.forEach(function (flag) {
+      if (document.body) document.body.classList.remove('citi-' + flag);
+      delete owned[flag]; delete applied[flag];
+    });
+  }
   function release() {
-    if (document.body) { Object.keys(owned).forEach(function (flag) { document.body.classList.remove('citi-' + flag); }); document.body.removeAttribute('data-wcs-active-style-flags'); }
-    owned = Object.create(null);
+    removeFlags(Object.keys(owned));
+    if (document.body) document.body.removeAttribute('data-wcs-active-style-flags');
     markers = [];
   }
 
@@ -100,12 +111,22 @@
     var requested = requestedFlags();
     if(requested.length) document.body.setAttribute('data-wcs-active-style-flags', requested.join(' '));
     else document.body.removeAttribute('data-wcs-active-style-flags');
-    Object.keys(owned).forEach(function (flag) {
-      if (requested.indexOf(flag) === -1) { document.body.classList.remove('citi-' + flag); delete owned[flag]; }
-    });
+    removeFlags(Object.keys(owned).filter(function (flag) { return requested.indexOf(flag) === -1; }));
+    var native = [];
     requested.forEach(function (flag) {
-      var name = 'citi-' + flag;
-      if (!document.body.classList.contains(name)) { document.body.classList.add(name); owned[flag] = true; }
+      var missing = !document.body.classList.contains('citi-' + flag);
+      if (missing) owned[flag] = true;
+      if (owned[flag] && (!applied[flag] || missing)) native.push(flag);
+    });
+    if (native.length && typeof window.citiStyleAdd === 'function') {
+      try {
+        window.citiStyleAdd.apply(window, native);
+        native.forEach(function (flag) { applied[flag] = true; });
+      } catch (error) { window.console.warn('[WCSpedia styling] Citi style application failed.', error); }
+    }
+    // Safe presentation fallback while the shared theme script is loading.
+    requested.forEach(function (flag) {
+      if (owned[flag] && !document.body.classList.contains('citi-' + flag)) document.body.classList.add('citi-' + flag);
     });
     if (booting || requested.length) observe();
     else stopObserving();
@@ -123,6 +144,8 @@
     refresh();
   }
 
+  function scriptLoaded(event) { if (event.target && event.target.tagName === 'SCRIPT') refresh(); }
+
   function pause() {
     suspended = true;
     booting = false;
@@ -137,6 +160,7 @@
     pause();
     destroyed = true;
     document.removeEventListener('DOMContentLoaded', start);
+    document.removeEventListener('load', scriptLoaded, true);
     window.removeEventListener('load', start);
     window.removeEventListener('pageshow', start);
     window.removeEventListener('pagehide', pause);
@@ -145,6 +169,7 @@
 
   window.WCSPageStyleFlags = Object.freeze({ refresh: refresh, destroy: destroy });
   document.addEventListener('DOMContentLoaded', start);
+  document.addEventListener('load', scriptLoaded, true);
   window.addEventListener('load', start);
   window.addEventListener('pageshow', start);
   window.addEventListener('pagehide', pause);

@@ -200,7 +200,7 @@
       }
       fail('The metadata lookup exceeded its safe page limit.', 'PROPERTY_LIMIT');
     }
-    async function property(pageId, key, options) { keyCheck(key); await page(pageId, '', options); return getProperty(pageId, key, options); }
+    async function property(pageId, key, options) { keyCheck(key); await page(pageId, '', options); return options && options.optional === true ? findProperty(pageId, key, { signal: options.signal }) : getProperty(pageId, key, options); }
     async function putProperty(pageId, key, value, expectedVersion, options) {
       options = options || {}; keyCheck(key); var encoded = jsonBytes(value, MAX_PROPERTY_BYTES);
       if (expectedVersion !== null && !integer(expectedVersion, 1)) fail('Use null to create a property or its current CAS version to update it.', 'CONFIGURATION');

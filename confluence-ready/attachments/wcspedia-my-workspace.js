@@ -2624,7 +2624,7 @@
     reviewPlan:'The business review target and change-triggered maintenance approach are appropriate.'
   };
   const href = value => {try { const url = new URL(value, root.location?.href); return url.protocol === 'https:' ? url.href : ''; } catch (_) { return ''; }};
-  function tag(version) {const value=version?.governance?.classification||'unclassified';return '<span class="wcs-governance-tag"'+(value==='unclassified'?' data-governance-unclassified':'')+'>'+esc(labels[value]||labels.unclassified)+'</span>';}
+  function tag(version,doc) {if(root.WCSEditorContent?.isInsightType(doc?.type))return '';const value=version?.governance?.classification||'unclassified';return '<span class="wcs-governance-tag"'+(value==='unclassified'?' data-governance-unclassified':'')+'>'+esc(labels[value]||labels.unclassified)+'</span>';}
   function metadata(version) {
     const g=version?.governance;
     if (!g) return '<p class="quiet-note">Governance information has not been assessed for this retained version. Classify it in a new draft; its approval history is unchanged.</p>';
@@ -2637,8 +2637,9 @@
     return '<div class="wcs-governance-findings">'+(issues.length?'<p><strong>Complete before submission</strong></p><ul>'+issues.map(issue=>'<li>'+esc(issueText(issue))+'</li>').join('')+'</ul>':'<p class="quiet-note">Required governance metadata is present. Human review remains necessary.</p>')+(flags.length?'<details class="wcs-governance-flags" open><summary>'+flags.length+' passage'+(flags.length===1?'':'s')+' to assess</summary><p class="quiet-note">Matches identify wording to review. They do not determine a breach or grant an exception.</p><ol>'+flags.map(flag=>'<li><strong>'+esc(flag.term||flag.label||flag.code||'Wording review')+'</strong><span>'+esc(flag.field||flag.location||'Content')+'</span><blockquote>'+esc(flag.snippet||flag.excerpt||flag.message||'Review the matching wording in context.')+'</blockquote></li>').join('')+'</ol></details>':'<p class="quiet-note">No configured wording matches. This is not a compliance certification.</p>')+'</div>';
   }
   function summary(doc,version) {
+    if(root.WCSEditorContent?.isInsightType(doc?.type))return '';
     const evidence=version.governanceReview;
-    return '<details class="wcs-governance-panel"><summary>'+tag(version)+'<span>Governance & source checks</span></summary><div class="wcs-governance-panel-body">'+metadata(version)+findings(doc,version)+(evidence?'<p class="wcs-governance-evidence"><strong>Reviewer assessment recorded</strong><br>Version '+esc(evidence.version)+' · revision '+esc(evidence.revision)+' · '+esc(evidence.findingDisposition)+'<br>'+esc(evidence.reason)+'</p>':'')+'</div></details>';
+    return '<details class="wcs-governance-panel"><summary>'+tag(version,doc)+'<span>Governance & source checks</span></summary><div class="wcs-governance-panel-body">'+metadata(version)+findings(doc,version)+(evidence?'<p class="wcs-governance-evidence"><strong>Reviewer assessment recorded</strong><br>Version '+esc(evidence.version)+' · revision '+esc(evidence.revision)+' · '+esc(evidence.findingDisposition)+'<br>'+esc(evidence.reason)+'</p>':'')+'</div></details>';
   }
   function reviewForm(doc,version) {
     const report=root.WCSGovernance.assess(doc,version);
@@ -3397,7 +3398,7 @@
       }
       fail('The metadata lookup exceeded its safe page limit.', 'PROPERTY_LIMIT');
     }
-    async function property(pageId, key, options) { keyCheck(key); await page(pageId, '', options); return getProperty(pageId, key, options); }
+    async function property(pageId, key, options) { keyCheck(key); await page(pageId, '', options); return options && options.optional === true ? findProperty(pageId, key, { signal: options.signal }) : getProperty(pageId, key, options); }
     async function putProperty(pageId, key, value, expectedVersion, options) {
       options = options || {}; keyCheck(key); var encoded = jsonBytes(value, MAX_PROPERTY_BYTES);
       if (expectedVersion !== null && !integer(expectedVersion, 1)) fail('Use null to create a property or its current CAS version to update it.', 'CONFIGURATION');
@@ -5298,7 +5299,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if (entry.settled) return;
       entry.settled = true; clearTimeout(entry.cancelTimer);
       if (searchInflight.get(entry.key) === entry) searchInflight.delete(entry.key);
-      if (!error && entry.subscribers.size && !entry.controller.signal.aborted && entry.generation === searchGeneration) {
+      if (!error && result.results?.length && entry.subscribers.size && !entry.controller.signal.aborted && entry.generation === searchGeneration) {
         searchCache.delete(entry.key); searchCache.set(entry.key, { at: Date.now(), result: clone(result) });
         while (searchCache.size > 24) searchCache.delete(searchCache.keys().next().value);
       }
@@ -5312,7 +5313,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if (object(value)) return ['object', Object.keys(value).sort().map(function (key) { return [key, canonical(value[key])]; })];
         return [typeof value, String(value)];
       }
-      var defaults = { scope: 'published', query: '', area: '', type: '', types: undefined, tag: '', process: '', region: '', year: '', updated: 'any', sort: 'relevance', limit: 20, start: 0, continuation: undefined, excerpt: true, excludeIds: undefined, excludeAncestorIds: undefined };
+      var defaults = { insights: false, nativeChildren: false, scope: 'published', query: '', area: '', type: '', types: undefined, tag: '', process: '', region: '', year: '', updated: 'any', sort: 'relevance', limit: 20, start: 0, continuation: undefined, excerpt: true, excludeIds: undefined, excludeAncestorIds: undefined };
       return JSON.stringify(Object.keys(defaults).map(function (key) {
         return [key, canonical(options[key] === undefined ? defaults[key] : options[key])];
       }));
@@ -6287,11 +6288,54 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       }
       return subscribeSearch(entry, options.signal);
     }
+    async function insightChildren(options, search) {
+      var parent = String(nativePublication.insightsPageId || ''), limit = options.limit || 9, start = options.start || 0;
+      if (!/^[1-9]\d{0,19}$/.test(parent) || parent === pageId) fail('Configure the Insights parent page.', 'CONFIGURATION');
+      if (!integer(limit) || limit > 100 || !integer(start, 0)) fail('Invalid Insights page size.');
+      if (options.continuation) {
+        var next = options.continuation;
+        if (next.transport !== 'children' || next.parent !== parent || next.limit !== limit || !integer(next.start, 0) || Object.keys(next).some(function (key) { return !['transport','parent','limit','start'].includes(key); })) fail('Restart the Insights listing.', 'INVALID_CONTINUATION');
+        start = next.start;
+      }
+      search.buildCQL({types:options.types}, {rootPageId:pageId,spaceKey:configuredSearchSpace});
+      var space = await waitForSearchSpace(options.signal);
+      var url = endpoint('/rest/api/content/' + parent + '/child/page');
+      url.search = new URLSearchParams({limit:String(limit),start:String(start),expand:'space,ancestors,version,metadata.labels'}).toString();
+      var payload = await json(await request(url, {signal:options.signal}));
+      if (!object(payload) || !Array.isArray(payload.results) || payload.results.length > limit) fail('Confluence returned an invalid Insights page list.', 'INVALID_SCOPE');
+      var excluded = searchExclusions(options), seen = new Set();
+      var results = payload.results.map(function (item) {
+        var id = String(item && item.id || ''), ancestors = item && item.ancestors;
+        if (!/^[1-9]\d{0,19}$/.test(id) || seen.has(id) || item.type !== 'page' || item.status !== 'current' || item.space?.key !== space || !Array.isArray(ancestors) || !ancestors.some(function (a) {return String(a.id) === pageId;}) || String(ancestors[ancestors.length - 1]?.id) !== parent || excluded.pages.includes(id) || ancestors.some(function (a) { return excluded.trees.includes(String(a.id)); })) fail('Confluence returned a page outside the Insights parent.', 'INVALID_SCOPE');
+        seen.add(id);
+        var labels = item.metadata?.labels?.results;
+        if (!Array.isArray(labels)) fail('Confluence did not return Insights article labels.', 'INVALID_SCOPE');
+        var names = labels.map(function (label) { return label.name; }), type = names.map(search.typeFromLabel).find(Boolean);
+        if (!options.types.includes(type)) return null;
+        return {id:id,title:plain(item.title),summary:'',type:type,category:'insights',status:'Published',tags:names.filter(function (name) {return typeof name === 'string' && name.startsWith('wcs-tag-');}).map(function (name) {return name.slice(8);}),updated:item.version?.when || null,version:item.version?.number || null,url:endpoint('/pages/viewpage.action').href + '?pageId=' + id};
+      }).filter(Boolean);
+      // Advance by native rows, including untyped pages. Never infer completion
+      // from the filtered card count or follow an arbitrary server URL.
+      var hasMore = !!payload._links?.next || !payload._links && payload.results.length === limit;
+      if (hasMore && !payload.results.length) fail('Insights pagination did not advance.', 'INVALID_CONTINUATION');
+      var continuation = hasMore ? {transport:'children',parent:parent,limit:limit,start:start + payload.results.length} : null;
+      return {results:results,total:null,start:start,limit:limit,nextContinuation:continuation,nextStart:continuation?.start || null};
+    }
     async function searchPagesWithin(options) {
       options = options || {};
       if (mode !== 'confluence') fail('Page search requires Confluence mode.', 'CONFIGURATION');
       var search = dependencies.search || root.WCSSearch;
       if (!search || typeof search.buildCQL !== 'function') fail('Load the WCSpedia search module before using CQL.', 'CONFIGURATION');
+      if (options.insights != null && typeof options.insights !== 'boolean' || options.nativeChildren != null && typeof options.nativeChildren !== 'boolean') fail('Invalid Insights search mode.');
+      if (options.nativeChildren && (!options.insights || options.scope !== 'tree' || !Array.isArray(options.types) || options.query || options.tag || options.area || options.type)) fail('Native Insights browsing requires an unfiltered article list.');
+      if (options.nativeChildren && (!options.continuation || options.continuation.transport === 'children')) {
+        try { return await insightChildren(options, search); }
+        catch (error) {
+          if (options.continuation || ![404,405,500,502,503,504].includes(error.status)) throw error;
+          // Older servers may reject child expansion. One scoped indexed read
+          // remains available, without fetching every article body.
+        }
+      }
       if (options.scope != null && ['tree', 'published'].indexOf(options.scope) < 0) fail('Choose a valid Confluence search scope.');
       var tree = options.scope === 'tree', limit = options.limit == null ? 20 : options.limit, start = options.start == null ? 0 : options.start;
       if (!integer(limit) || limit > 100 || !integer(start, 0)) fail('Invalid search page size or offset.');
@@ -6311,6 +6355,10 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           scope.additionalSubtreePageId = String(nativePublication.insightsPageId);
           scope.additionalSubtreeCategory = options.area;
         }
+      }
+      if (options.insights) {
+        if (!tree || !/^[1-9]\d{0,19}$/.test(String(nativePublication.insightsPageId || '')) || options.area) fail('Configure the Insights subtree.', 'CONFIGURATION');
+        scope.subtreePageId = String(nativePublication.insightsPageId);
       }
       search.buildCQL(queryOptions, scope);
       if (options.year != null && options.year !== '' && (!['string', 'number'].includes(typeof options.year) || !/^\d{4}$/.test(String(options.year)) || Number(options.year) < 1900 || Number(options.year) > 9998)) fail('Choose a four-digit year between 1900 and 9998.');
@@ -8304,7 +8352,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 /* Source: content-health.js */
 /* Shared content-health rules. The browser prototype is not an authorisation
  * boundary: a live service must derive actor/context and commit audit atomically. */
-(function(root,factory){'use strict';var api=factory(typeof module==='object'&&module.exports?require('./vendor/markdown-it-15.0.2.min.js'):root.WCSMarkdownIt,typeof module==='object'&&module.exports?require('./governance.js'):root.WCSGovernance);if(typeof module==='object'&&module.exports)module.exports=api;else root.WCSContentHealth=api;})(typeof globalThis!=='undefined'?globalThis:this,function(MarkdownIt,G){
+(function(root,factory){'use strict';var api=factory(typeof module==='object'&&module.exports?require('./vendor/markdown-it-15.0.2.min.js'):root.WCSMarkdownIt,typeof module==='object'&&module.exports?require('./governance.js'):root.WCSGovernance,typeof module==='object'&&module.exports?require('./editor-content.js'):root.WCSEditorContent);if(typeof module==='object'&&module.exports)module.exports=api;else root.WCSContentHealth=api;})(typeof globalThis!=='undefined'?globalThis:this,function(MarkdownIt,G,Content){
   'use strict';
   var DAY=86400000, STATES=['Open','In progress','Ready for verification','Resolved'], CHECKS=['review','owner','approval','resources'], parser=MarkdownIt?new MarkdownIt({html:false}):null, TRIGGERS=['source-change','control-change','process-change','responsibility-change','error','feedback'];
   function fail(code,message){var error=new Error(message);error.code=code;throw error;}
@@ -8366,8 +8414,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   function casesFor(record,version,now){return list(record,'cases').map(function(item){var relevant=list(record,'reviews').filter(function(review){return review.caseIds.indexOf(item.id)>=0&&instant(review.at)>=instant(item.at)&&instant(review.at)<=now;}),closed=relevant.find(function(review){return review.verified&&review.outcome==='no-change';}),changes=relevant.filter(function(review){return review.outcome==='changes-needed';}).slice(-1)[0],basis=changes||item,current=exact(item,version),newApproved=(version.version>basis.sourceVersion||version.version===basis.sourceVersion&&version.revision>basis.sourceRevision)&&instant(version.approvedAt)>=instant(basis.at);return Object.assign({},item,{state:closed?'Verified':changes&&!newApproved?'Changes needed':!current?'New version needs verification':relevant.length?'Awaiting manager verification':'Review needed',resolved:!!closed,changesNeeded:!!changes,currentSource:current,newApproved:newApproved});});}
   function earlierTarget(version,target){var chosen=instant(version.nextReviewAt),baseline=instant(target);return chosen!==null&&baseline!==null&&chosen<baseline?new Date(chosen).toISOString().slice(0,10):target;}
   function governance(version,doc,now){if(!G||typeof G.assess!=='function')fail('HEALTH_UNAVAILABLE','Load the shared governance module before evaluating content health.');return G.assess(doc,version,{now:new Date(now).toISOString()});}
-  function evaluate(doc,record,options){options=options||{};var current=record?validate(record,doc.id):initial(doc),policy=current.rules,version=published(doc),now=clock(options.now),today=Math.floor(now/DAY),people=options.people||[],checks=[],issues=[],items=resources(version),assessment=version?governance(version,doc,now):null,baseline=assessment&&['other-nhd','other-bod'].indexOf(assessment.classification)>=0;
-    function check(id,label,status,message,severity,code){var enabled=(baseline&&['review','owner','approval'].indexOf(id)>=0)||policy.enabled[id];checks.push({id:id,label:label,enabled:enabled,status:enabled?status:'disabled',message:enabled?message:'Disabled by this document’s health policy.'});if(enabled&&status!=='pass')issues.push({code:code||id,check:id,label:message,severity:severity||'Check needed'});}
+  function evaluate(doc,record,options){options=options||{};var current=record?validate(record,doc.id):initial(doc),policy=current.rules,version=published(doc),now=clock(options.now),today=Math.floor(now/DAY),people=options.people||[],checks=[],issues=[],items=resources(version),direct=Content.isDirectPublication(doc),assessment=version?(direct?{classification:null,label:'Direct publication',metadataIssues:[],flags:[]}:governance(version,doc,now)):null,baseline=assessment&&['other-nhd','other-bod'].indexOf(assessment.classification)>=0;
+    function check(id,label,status,message,severity,code){var applicable=!(direct&&(id==='approval'||id==='review'&&!version.nextReviewAt)),enabled=applicable&&((baseline&&['review','owner','approval'].indexOf(id)>=0)||policy.enabled[id]);checks.push({id:id,label:label,enabled:enabled,status:enabled?status:'disabled',message:!applicable?'Not required for direct Insights publication.':enabled?message:'Disabled by this document’s health policy.'});if(enabled&&status!=='pass')issues.push({code:code||id,check:id,label:message,severity:severity||'Check needed'});}
     if(!version){return {documentKey:doc.id,publishedVersion:null,publishedRevision:null,tag:'Check needed',label:'Check needed',issues:[{code:'publication-missing',check:'publication',label:'No current approved snapshot is available.',severity:'Check needed'}],checks:[],resources:[],rules:copy(policy),policyLabel:'Awaiting an approved document',workflowStatus:current.status,needsReopen:false,assigneeId:current.assigneeId||doc.ownerId||null,dueAt:current.dueAt,recordRevision:current.revision,canResolve:false};}
     var owner=people.find(function(p){return p.id===doc.ownerId;});check('owner','Document owner',owner&&owner.active!==false?'pass':'fail',owner&&owner.active!==false?'An active document owner is assigned.':'Assign an active document owner.','Action required','owner-missing');
     var verifiedReview=list(current,'reviews').filter(function(item){return item.verified&&item.outcome==='no-change'&&exact(item,version)&&instant(item.at)<=now&&instant(item.at)>=instant(version.approvedAt);}).sort(function(a,b){return instant(b.at)-instant(a.at);})[0],reviewTarget=baseline?(verifiedReview?G.nextReviewDate(verifiedReview.at,24):earlierTarget(version,assessment.reviewTarget)):version.nextReviewAt,due=utcDay(reviewTarget),distance=due===null?null:due-today;
@@ -8380,7 +8428,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     assessment.metadataIssues.forEach(function(issue){issues.push({code:'governance-'+issue.field,check:'governance',label:issue.message,severity:'Check needed',kind:'metadata-review'});});
     var cases=casesFor(current,version,now);cases.filter(function(item){return !item.resolved;}).forEach(function(item){issues.push({code:item.id,check:'maintenance',label:(item.triggerType==='source-change'?'Source change':item.triggerType.replace(/-/g,' '))+': '+(current.redacted?'Review required for the approved document.':item.reason),severity:'Action required',kind:item.triggerType});});
     var tag=issues.some(function(i){return i.severity==='Action required';})?'Action required':issues.some(function(i){return i.severity==='Review due';})?'Review due':issues.length?'Check needed':'Healthy',disabled=CHECKS.filter(function(k){return !policy.enabled[k]&&!(baseline&&['review','owner','approval'].indexOf(k)>=0);}),reopen=current.status==='Resolved'&&issues.length>0;
-    return {classification:assessment.classification,classificationLabel:assessment.label,metadataIssues:assessment.metadataIssues,flags:assessment.flags,baselineProtected:baseline,reviewTarget:reviewTarget||null,verifiedReview:verifiedReview||null,sourceFingerprint:sourceFingerprint(version),sources:copy(version.governance&&version.governance.sources||[]),cases:cases,reviews:copy(list(current,'reviews')),documentKey:doc.id,publishedVersion:version.version,publishedRevision:version.revision,tag:tag,label:tag,issues:issues,checks:checks,resources:items,rules:copy(policy),policyLabel:disabled.length?'Checks disabled: '+disabled.join(', '):'All health checks enabled',workflowStatus:reopen?'Open':!current.revision&&!issues.length?'No action needed':current.status,needsReopen:!!reopen,assigneeId:current.assigneeId||doc.ownerId||null,dueAt:reopen?null:current.dueAt,recordRevision:current.revision,canResolve:issues.length===0};
+    return {classification:assessment.classification,classificationLabel:assessment.label,metadataIssues:assessment.metadataIssues,flags:assessment.flags,baselineProtected:baseline,reviewTarget:reviewTarget||null,verifiedReview:verifiedReview||null,sourceFingerprint:sourceFingerprint(version),sources:copy(version.governance&&version.governance.sources||[]),cases:cases,reviews:copy(list(current,'reviews')),documentKey:doc.id,publishedVersion:version.version,publishedRevision:version.revision,tag:tag,label:tag,issues:issues,checks:checks,resources:items,rules:copy(policy),policyLabel:direct?'Insights checks · manager approval is not required':disabled.length?'Checks disabled: '+disabled.join(', '):'All health checks enabled',workflowStatus:reopen?'Open':!current.revision&&!issues.length?'No action needed':current.status,needsReopen:!!reopen,assigneeId:current.assigneeId||doc.ownerId||null,dueAt:reopen?null:current.dueAt,recordRevision:current.revision,canResolve:issues.length===0};
   }
   function authority(doc,record,options){var actor=options.actor,context=options.context||{},person=actor&&(options.people||[]).find(function(p){return p.id===actor.id;});if(!person||person.active===false||actor.role!==person.role||typeof actor.soeid!=='string'||!/^[a-z0-9._-]{1,80}$/i.test(actor.soeid)||typeof context.signedSOEID!=='string'||context.signedSOEID.toLowerCase()!==actor.soeid.toLowerCase()||typeof person.soeid!=='string'||person.soeid.toLowerCase()!==actor.soeid.toLowerCase())fail('HEALTH_FORBIDDEN','A current, authenticated directory identity is required.');var manager=actor.role==='Manager'&&context.canEdit===true;return {manager:manager,canAct:manager||actor.id===doc.ownerId||actor.id===(record.assigneeId||doc.ownerId),canReview:manager||actor.role!=='Reader'&&(actor.id===doc.ownerId||actor.id===(record.assigneeId||doc.ownerId)),actor:actor};}
   function publicRecord(record){var result=copy(record);result.redacted=true;result.audit=[];result.verifications=result.verifications.map(function(v){return {version:v.version,revision:v.revision,fingerprint:opaque(v.fingerprint),at:v.at,actorId:'',actorSOEID:'',evidence:''};});['cases','reviews'].forEach(function(name){result[name]=list(result,name).map(function(item){return Object.assign({},item,{actorId:'',actorSOEID:'',reason:'',evidence:'',sourceId:''});});});return result;}
@@ -8410,7 +8458,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         ids=ids.slice();
         if(command.outcome==='changes-needed'&&!ids.length)ids.push(addCase('feedback','').id);
         if(command.outcome==='no-change'&&access.manager&&report.cases.some(function(item){return !item.resolved&&item.changesNeeded&&!item.newApproved;}))fail('HEALTH_CHECKS','Changes-needed cases require a new approved version before no-change verification.');
-        if(command.outcome==='no-change'&&access.manager&&!report.checks.find(function(item){return item.id==='approval'&&item.status==='pass';}))fail('HEALTH_CHECKS','Valid approval evidence is required before verifying a document review.');
+        if(command.outcome==='no-change'&&access.manager&&!Content.isDirectPublication(doc)&&!report.checks.find(function(item){return item.id==='approval'&&item.status==='pass';}))fail('HEALTH_CHECKS','Valid approval evidence is required before verifying a document review.');
         var review=Object.assign({id:doc.id+'-document-review-'+(next.revision+1),outcome:command.outcome,caseIds:ids,verified:access.manager&&command.outcome==='no-change',verifiedByRole:access.manager&&command.outcome==='no-change'?'Manager':null},bound);
         next.reviews.push(review);next.status=command.outcome==='changes-needed'?'In progress':'Ready for verification';
       }
@@ -8484,7 +8532,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function load(list){
       if(!Array.isArray(list)||list.some(function(d){return !d||typeof d.id!=='string';}))fail('HEALTH_INPUT','Provide the readable documents to load content health.');
       await user();documents=new Map(list.map(function(d){return [d.id,clone(d)];}));var result=Object.create(null),eligible=list.filter(function(d){return d.nativeSessionWorkflow===true&&published(d)&&!d.deletedAt;}),next=0;
-      await Promise.all(Array.from({length:Math.min(4,eligible.length)},async function(){while(next<eligible.length){var doc=eligible[next++],target={id:doc.id,pageId:id(doc.confluencePageId)};working(await db.page(target.pageId));var state=await db.readJSON(target.pageId,FILE,KEY),value=record(state.data,target);var operation=await db.property(target.pageId,JOURNAL);if(state.pointer?.pending||operation?.value&&!operation.value.done){var error=new Error('A health save is awaiting confirmation. Retry the original action to reconcile it.');error.code='HEALTH_OUTCOME_UNKNOWN';if(operation?.value?.actorSOEID===subject)error.recoveryDocumentId=doc.id;throw error;}if(value)result[doc.id]=clone(value.record);}}));
+      await Promise.all(Array.from({length:Math.min(4,eligible.length)},async function(){while(next<eligible.length){var doc=eligible[next++],target={id:doc.id,pageId:id(doc.confluencePageId)};working(await db.page(target.pageId));var state=await db.readJSON(target.pageId,FILE,KEY),value=record(state.data,target);var operation=await db.property(target.pageId,JOURNAL,{optional:true});if(state.pointer?.pending||operation?.value&&!operation.value.done){var error=new Error('A health save is awaiting confirmation. Retry the original action to reconcile it.');error.code='HEALTH_OUTCOME_UNKNOWN';if(operation?.value?.actorSOEID===subject)error.recoveryDocumentId=doc.id;throw error;}if(value)result[doc.id]=clone(value.record);}}));
       return result;
     }
     // A prepared operation has not called the attachment writer. Its journal
@@ -8493,7 +8541,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function abortPrepared(recovery){
       if(!recovery)return false;
       await user();
-      var target=recovery.target,entry=await db.property(target.pageId,JOURNAL),op=entry&&entry.value;
+      var target=recovery.target,entry=await db.property(target.pageId,JOURNAL,{optional:true}),op=entry&&entry.value;
       if(!op||op.requestId!==recovery.requestId||op.actorSOEID!==subject||op.done||op.writeStarted!==false)return false;
       var state=await db.readJSON(target.pageId,FILE,KEY);
       if(state.pointer?.pending||state.revision!==op.expectedRevision||state.attachmentVersion!==op.expectedAttachmentVersion||hash(state.data)!==op.healthHash)return false;
@@ -8502,7 +8550,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     }
     function submit(documentId,input){var recovery=null;return serial(documentId,async function(){
       if(typeof documentId!=='string'||!documentId)fail('HEALTH_INPUT','A document key is required.');
-      var command=cleanCommand(input),commandHash=hash(command),target=await locate(documentId),state=await db.readJSON(target.pageId,FILE,KEY),value=record(state.data,target),entry=await db.property(target.pageId,JOURNAL),pending=entry&&entry.value;
+      var command=cleanCommand(input),commandHash=hash(command),target=await locate(documentId),state=await db.readJSON(target.pageId,FILE,KEY),value=record(state.data,target),entry=await db.property(target.pageId,JOURNAL,{optional:true}),pending=entry&&entry.value;
       function validOperation(op){return object(op)&&op.schemaVersion===1&&op.documentKey===target.id&&op.workingPageId===target.pageId&&typeof op.done==='boolean'&&typeof op.requestId==='string'&&op.requestId.startsWith('health-')&&op.commandHash===hash(op.command)&&Number.isFinite(Date.parse(op.at))&&Number.isSafeInteger(op.expectedRevision)&&Number.isSafeInteger(op.expectedAttachmentVersion)&&typeof op.binding==='string'&&(op.writeStarted===undefined||typeof op.writeStarted==='boolean'&&typeof op.healthHash==='string')&&E.normalizeSOEID(op.actorSOEID);}
       if(pending&&!validOperation(pending))fail('HEALTH_CORRUPT','The native health operation journal is invalid.');
       var same=pending&&pending.commandHash===commandHash&&pending.actorSOEID===subject;
@@ -8539,7 +8587,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(!abandoned&&['UNKNOWN_COMMIT','HEALTH_OUTCOME_UNKNOWN'].includes(error.code)){error.retryOriginal=true;error.recoveryDocumentId=documentId;}
       throw error;
     });}
-    async function recover(documentId){await user();var target=await locate(documentId),entry=await db.property(target.pageId,JOURNAL),op=entry&&entry.value;if(!op||op.actorSOEID!==subject||!object(op.command))fail('HEALTH_FORBIDDEN','Only the original signed-in author can recover this health action.');return submit(documentId,op.command);}
+    async function recover(documentId){await user();var target=await locate(documentId),entry=await db.property(target.pageId,JOURNAL,{optional:true}),op=entry&&entry.value;if(!op||op.actorSOEID!==subject||!object(op.command))fail('HEALTH_FORBIDDEN','Only the original signed-in author can recover this health action.');return submit(documentId,op.command);}
     return Object.freeze({load:load,submit:submit,recover:recover,available:true,live:true,native:true,storeKey:null,supports:function(doc){return !!doc&&doc.nativeSessionWorkflow===true&&!!published(doc);}});
   }
   return Object.freeze({create:create,FILE:FILE,KEY:KEY,JOURNAL:JOURNAL});
@@ -9032,7 +9080,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     var count = options.loading ? (model.total ? 'Updating insights…' : 'Loading insights…') : model.total+' '+(model.total===1?'insight':'insights')+(options.complete===false?' loaded':'');
     var cards = model.items.map(function (item) { return card(item, options); }).join('');
     var message = options.error ? '<div class="wcs-insights-message wcs-insights-error" role="alert"><p>'+esc(options.error)+'</p><button type="button" data-wcs-insights-retry>Try again</button></div>' : '';
-    if (!cards && !options.loading && !options.error) cards = '<div class="wcs-insights-empty"><h2>No insights found</h2><p>'+(filter.q || filter.topic || active!=='all' ? 'Try another topic or clear your filters.' : 'Published guides, blogs, training and reports will appear here.')+'</p>'+((filter.q || filter.topic || active!=='all')?'<button type="button" data-wcs-insights-reset>Clear filters</button>':'')+'</div>';
+    if (!cards && !options.loading && !options.error) cards = '<div class="wcs-insights-empty"><h2>'+(options.hasMore?'Continue exploring Insights':'No insights found')+'</h2><p>'+(filter.q || filter.topic || active!=='all' ? 'Try another topic or clear your filters.' : options.hasMore ? 'No matching articles in this batch. Load more to continue through Insights.' : 'Published guides, blogs, training and reports will appear here.')+'</p>'+((filter.q || filter.topic || active!=='all')?'<button type="button" data-wcs-insights-reset>Clear filters</button>':'')+'</div>';
     return '<section class="wcs-insights" aria-labelledby="wcs-insights-heading" data-wcs-insights-filter="'+esc(JSON.stringify(filter))+'">'+
       '<div class="wcs-insights-heading"><h1 id="wcs-insights-heading">All Insights</h1>'+
       '</div>'+
@@ -9347,5 +9395,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['mine'] = { version: 'fdfab918172f' };
+  modules['mine'] = { version: '2c7d496e4f5a' };
 })();

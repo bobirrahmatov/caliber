@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === 'fdfab918172f') return;
+  if (registry.addDocument && registry.addDocument.version === '2c7d496e4f5a') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -1480,7 +1480,7 @@
       }
       fail('The metadata lookup exceeded its safe page limit.', 'PROPERTY_LIMIT');
     }
-    async function property(pageId, key, options) { keyCheck(key); await page(pageId, '', options); return getProperty(pageId, key, options); }
+    async function property(pageId, key, options) { keyCheck(key); await page(pageId, '', options); return options && options.optional === true ? findProperty(pageId, key, { signal: options.signal }) : getProperty(pageId, key, options); }
     async function putProperty(pageId, key, value, expectedVersion, options) {
       options = options || {}; keyCheck(key); var encoded = jsonBytes(value, MAX_PROPERTY_BYTES);
       if (expectedVersion !== null && !integer(expectedVersion, 1)) fail('Use null to create a property or its current CAS version to update it.', 'CONFIGURATION');
@@ -2698,7 +2698,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if (entry.settled) return;
       entry.settled = true; clearTimeout(entry.cancelTimer);
       if (searchInflight.get(entry.key) === entry) searchInflight.delete(entry.key);
-      if (!error && entry.subscribers.size && !entry.controller.signal.aborted && entry.generation === searchGeneration) {
+      if (!error && result.results?.length && entry.subscribers.size && !entry.controller.signal.aborted && entry.generation === searchGeneration) {
         searchCache.delete(entry.key); searchCache.set(entry.key, { at: Date.now(), result: clone(result) });
         while (searchCache.size > 24) searchCache.delete(searchCache.keys().next().value);
       }
@@ -2712,7 +2712,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if (object(value)) return ['object', Object.keys(value).sort().map(function (key) { return [key, canonical(value[key])]; })];
         return [typeof value, String(value)];
       }
-      var defaults = { scope: 'published', query: '', area: '', type: '', types: undefined, tag: '', process: '', region: '', year: '', updated: 'any', sort: 'relevance', limit: 20, start: 0, continuation: undefined, excerpt: true, excludeIds: undefined, excludeAncestorIds: undefined };
+      var defaults = { insights: false, nativeChildren: false, scope: 'published', query: '', area: '', type: '', types: undefined, tag: '', process: '', region: '', year: '', updated: 'any', sort: 'relevance', limit: 20, start: 0, continuation: undefined, excerpt: true, excludeIds: undefined, excludeAncestorIds: undefined };
       return JSON.stringify(Object.keys(defaults).map(function (key) {
         return [key, canonical(options[key] === undefined ? defaults[key] : options[key])];
       }));
@@ -3687,11 +3687,54 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       }
       return subscribeSearch(entry, options.signal);
     }
+    async function insightChildren(options, search) {
+      var parent = String(nativePublication.insightsPageId || ''), limit = options.limit || 9, start = options.start || 0;
+      if (!/^[1-9]\d{0,19}$/.test(parent) || parent === pageId) fail('Configure the Insights parent page.', 'CONFIGURATION');
+      if (!integer(limit) || limit > 100 || !integer(start, 0)) fail('Invalid Insights page size.');
+      if (options.continuation) {
+        var next = options.continuation;
+        if (next.transport !== 'children' || next.parent !== parent || next.limit !== limit || !integer(next.start, 0) || Object.keys(next).some(function (key) { return !['transport','parent','limit','start'].includes(key); })) fail('Restart the Insights listing.', 'INVALID_CONTINUATION');
+        start = next.start;
+      }
+      search.buildCQL({types:options.types}, {rootPageId:pageId,spaceKey:configuredSearchSpace});
+      var space = await waitForSearchSpace(options.signal);
+      var url = endpoint('/rest/api/content/' + parent + '/child/page');
+      url.search = new URLSearchParams({limit:String(limit),start:String(start),expand:'space,ancestors,version,metadata.labels'}).toString();
+      var payload = await json(await request(url, {signal:options.signal}));
+      if (!object(payload) || !Array.isArray(payload.results) || payload.results.length > limit) fail('Confluence returned an invalid Insights page list.', 'INVALID_SCOPE');
+      var excluded = searchExclusions(options), seen = new Set();
+      var results = payload.results.map(function (item) {
+        var id = String(item && item.id || ''), ancestors = item && item.ancestors;
+        if (!/^[1-9]\d{0,19}$/.test(id) || seen.has(id) || item.type !== 'page' || item.status !== 'current' || item.space?.key !== space || !Array.isArray(ancestors) || !ancestors.some(function (a) {return String(a.id) === pageId;}) || String(ancestors[ancestors.length - 1]?.id) !== parent || excluded.pages.includes(id) || ancestors.some(function (a) { return excluded.trees.includes(String(a.id)); })) fail('Confluence returned a page outside the Insights parent.', 'INVALID_SCOPE');
+        seen.add(id);
+        var labels = item.metadata?.labels?.results;
+        if (!Array.isArray(labels)) fail('Confluence did not return Insights article labels.', 'INVALID_SCOPE');
+        var names = labels.map(function (label) { return label.name; }), type = names.map(search.typeFromLabel).find(Boolean);
+        if (!options.types.includes(type)) return null;
+        return {id:id,title:plain(item.title),summary:'',type:type,category:'insights',status:'Published',tags:names.filter(function (name) {return typeof name === 'string' && name.startsWith('wcs-tag-');}).map(function (name) {return name.slice(8);}),updated:item.version?.when || null,version:item.version?.number || null,url:endpoint('/pages/viewpage.action').href + '?pageId=' + id};
+      }).filter(Boolean);
+      // Advance by native rows, including untyped pages. Never infer completion
+      // from the filtered card count or follow an arbitrary server URL.
+      var hasMore = !!payload._links?.next || !payload._links && payload.results.length === limit;
+      if (hasMore && !payload.results.length) fail('Insights pagination did not advance.', 'INVALID_CONTINUATION');
+      var continuation = hasMore ? {transport:'children',parent:parent,limit:limit,start:start + payload.results.length} : null;
+      return {results:results,total:null,start:start,limit:limit,nextContinuation:continuation,nextStart:continuation?.start || null};
+    }
     async function searchPagesWithin(options) {
       options = options || {};
       if (mode !== 'confluence') fail('Page search requires Confluence mode.', 'CONFIGURATION');
       var search = dependencies.search || root.WCSSearch;
       if (!search || typeof search.buildCQL !== 'function') fail('Load the WCSpedia search module before using CQL.', 'CONFIGURATION');
+      if (options.insights != null && typeof options.insights !== 'boolean' || options.nativeChildren != null && typeof options.nativeChildren !== 'boolean') fail('Invalid Insights search mode.');
+      if (options.nativeChildren && (!options.insights || options.scope !== 'tree' || !Array.isArray(options.types) || options.query || options.tag || options.area || options.type)) fail('Native Insights browsing requires an unfiltered article list.');
+      if (options.nativeChildren && (!options.continuation || options.continuation.transport === 'children')) {
+        try { return await insightChildren(options, search); }
+        catch (error) {
+          if (options.continuation || ![404,405,500,502,503,504].includes(error.status)) throw error;
+          // Older servers may reject child expansion. One scoped indexed read
+          // remains available, without fetching every article body.
+        }
+      }
       if (options.scope != null && ['tree', 'published'].indexOf(options.scope) < 0) fail('Choose a valid Confluence search scope.');
       var tree = options.scope === 'tree', limit = options.limit == null ? 20 : options.limit, start = options.start == null ? 0 : options.start;
       if (!integer(limit) || limit > 100 || !integer(start, 0)) fail('Invalid search page size or offset.');
@@ -3711,6 +3754,10 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           scope.additionalSubtreePageId = String(nativePublication.insightsPageId);
           scope.additionalSubtreeCategory = options.area;
         }
+      }
+      if (options.insights) {
+        if (!tree || !/^[1-9]\d{0,19}$/.test(String(nativePublication.insightsPageId || '')) || options.area) fail('Configure the Insights subtree.', 'CONFIGURATION');
+        scope.subtreePageId = String(nativePublication.insightsPageId);
       }
       search.buildCQL(queryOptions, scope);
       if (options.year != null && options.year !== '' && (!['string', 'number'].includes(typeof options.year) || !/^\d{4}$/.test(String(options.year)) || Number(options.year) < 1900 || Number(options.year) > 9998)) fail('Choose a four-digit year between 1900 and 9998.');
@@ -4298,5 +4345,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: 'fdfab918172f', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
+  registry.addDocument = { version: '2c7d496e4f5a', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
 })();

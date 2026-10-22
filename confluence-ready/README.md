@@ -95,6 +95,19 @@ Replace **wcspedia-page-style-flags.js**, the shared **wcspedia-style.css**, and
 
 The helper now recognizes rendered native anchors without requiring a theme class, restores its flags if the theme replaces body classes, and restarts its bounded readiness observation at DOM/load readiness. The shared CSS supplies scoped `!important` rules for native title/actions/comments/footer on marked article views. It leaves the article's own heading, navBar and WCSpedia discussion alone, and does not activate on app pages, native editing or previews. No additional stylesheet or network lookup is added. If the internal theme uses different element selectors, live DOM inspection is still needed; do not hide every header or h1 globally.
 
+
+## Insights publication and article flags — 22 October correction
+
+Replace the runtime attachments from this package, the matching page HTML fragments, and the combined navBar HTML. Keep your live entitlements and document JSON. No re-publication or new reader group is required for the presentation fix.
+
+- Insights parent remains **3961735728**, in **wcspedia**. Published author records remain in My Workspace; the reader page is a separate child of Insights.
+- The unfiltered Insights listing now reads native child pages, nine native rows per request, without waiting for CQL indexing or downloading article bodies/Working JSON. Load more advances past untyped rows. Cards sort the loaded batch by modification date; this is not a global newest-first ordering of unread native pages. If a server rejects the child endpoint with 404/405/5xx, one space-and-Insights-scoped CQL read is used. Text/type/topic searches still depend on the Confluence search index. Empty lists are not retained in the application search cache.
+- Direct Insights publications no longer receive missing-classification, missing-approval or missing-review-date alerts. Explicit review dates, owner checks, resources and recorded maintenance issues remain meaningful. Job aid checks are unchanged.
+- Optional health-operation lookup uses the native property collection, where an absent journal is an empty result. The helpfulness reader deliberately fetches only your own vote and the view counter: a native `No content property found with key` 404 means no vote/counter yet and is handled as an empty initial state. It is not a missing attachment or a failed save; no starter JSON should be uploaded to that property URL. Keeping targeted reads avoids scanning every reader’s votes on article load. Permission/server failures still remain errors.
+- The shared article helper calls the documented **citiStyleAdd / citiStyleRemove** functions with separate flag strings. Existing marked articles get the fix without editing every article. Keep the native `wcs-page-style-v1` Anchor in article content and load the helper once via navBar; never put that marker in navBar itself.
+
+Verification on the internal site: publish one Blog, open All Insights, then its native reader page. Confirm the page is beneath Insights, the intended chrome flags apply, and it has no Job aid approval badges. Submit a first helpfulness vote, then reload and confirm it remains selected. Local tests do not verify your internal server or host theme implementation.
+
 ## Configured page IDs
 
 Space key: `wcspedia`. Context: `/confluence`. Attachment page: `3962195316`.
