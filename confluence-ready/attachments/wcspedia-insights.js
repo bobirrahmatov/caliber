@@ -3992,16 +3992,16 @@ function renderStorage(document, selected, people = [], options = {}) {
   else if (published) rows.push(['Approved by', personLabel(version.approvedBy, people)], ['Approval date', date(version.approvedAt)], ['Effective date', date(version.effectiveAt)]);
   else if (!directInsight) rows.push(['Approval', 'Not approved for publication']);
   ['tags', 'processes', 'regions'].forEach(kind => { const values = content.validateTags(version[kind] || [], kind); if (values.length) rows.push([kind === 'tags' ? 'Topics' : kind === 'regions' ? 'Regions covered' : 'Processes', values.join(', ')]); });
-  const article = options.hostStyleFlags === true && published && directInsight;
+  const article = options.hostStyleFlags === true && published;
   let out = '';
   if (options.hostStyleFlags === true) {
     out = '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-page-style-v1</ac:parameter></ac:structured-macro>';
     if (article) {
       if (options.insightsUrl != null && !/^\/(?:[A-Za-z0-9_-]+\/)*pages\/viewpage\.action\?pageId=[1-9]\d{0,19}$/.test(options.insightsUrl)) fail('Use a same-origin native Insights page link.');
-      out += '<div class="wcs-native-article"><div class="wcs-native-article-heading"><p class="wcs-native-article-kicker">' + (options.insightsUrl ? '<a href="' + xml(options.insightsUrl) + '">Insights</a>' : 'Insights') + ' · ' + xml(document.type) + '</p>';
+      out += '<div class="wcs-native-article"><div class="wcs-native-article-heading"><p class="wcs-native-article-kicker">' + (directInsight ? (options.insightsUrl ? '<a href="' + xml(options.insightsUrl) + '">Insights</a>' : 'Insights') : xml(options.areaLabel || document.area)) + ' · ' + xml(document.type) + '</p>';
     }
     out += '<h1>' + xml(version.title) + '</h1>';
-    if (article) out += '<p class="wcs-native-article-byline">' + xml(personLabel(document.authorId || version.createdBy, people)) + ' · ' + xml(date(version.publishedAt)) + '</p></div>';
+    if (article) out += '<p class="wcs-native-article-byline">' + xml(personLabel(document.authorId || version.createdBy, people)) + ' · ' + xml(date(version.publishedAt || version.approvedAt)) + '</p></div>';
   }
   if (published && options.readerPageId && options.readerRootId) {
     if (!/^[1-9]\d{0,19}$/.test(String(options.readerPageId)) || !/^[1-9]\d{0,19}$/.test(String(options.readerRootId))) fail('Invalid reader page mapping.');
@@ -4012,9 +4012,12 @@ function renderStorage(document, selected, people = [], options = {}) {
   // Same native body revision as the approved content: no separate-property write race.
   out += '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-comments-v1-' + (version.commentsEnabled ? 'enabled' : 'disabled') + '</ac:parameter></ac:structured-macro>';
   out += '<ac:structured-macro ac:name="details" ac:schema-version="1"><ac:parameter ac:name="id">wcspedia-document</ac:parameter>' + (article ? '<ac:parameter ac:name="hidden">true</ac:parameter>' : '') + '<ac:rich-text-body>' + table(rows) + '</ac:rich-text-body></ac:structured-macro>';
-  if (article) out += '<div class="wcs-native-article-body">';
+  if (article) {
+    out += version.cover ? '<div class="wcs-native-article-cover">' + imageTag(staged(options, '$cover', version.cover.src), version.cover.alt) + (version.cover.caption ? '<p>' + xml(version.cover.caption) + '</p>' : '') + '</div>' : '<div class="wcs-native-article-art" aria-hidden="true"></div>';
+    out += '<div class="wcs-native-article-layout"><div class="wcs-native-article-body">';
+  }
   if (version.summary) out += '<ac:structured-macro ac:name="excerpt" ac:schema-version="1"><ac:rich-text-body><p>' + xml(version.summary) + '</p></ac:rich-text-body></ac:structured-macro>';
-  if (version.cover) out += '<p>' + imageTag(staged(options, '$cover', version.cover.src), version.cover.alt) + '</p>' + (version.cover.caption ? '<p><em>' + xml(version.cover.caption) + '</em></p>' : '');
+  if (version.cover && !article) out += '<p>' + imageTag(staged(options, '$cover', version.cover.src), version.cover.alt) + '</p>' + (version.cover.caption ? '<p><em>' + xml(version.cover.caption) + '</em></p>' : '');
   if (Array.isArray(version.highlights) && version.highlights.length) out += '<h2>Key points</h2><ul>' + version.highlights.map(item => '<li>' + xml(item) + '</li>').join('') + '</ul>';
   out += renderTokens(parser.parse(body, {}), version, options);
   if (governance) {
@@ -4022,7 +4025,11 @@ function renderStorage(document, selected, people = [], options = {}) {
     if (governance.sources.length) out += '<h3>Authoritative sources</h3><ul>' + governance.sources.map(source => '<li>' + (source.url ? '<a href="' + xml(source.url) + '">' + xml(source.title) + '</a>' : xml(source.title)) + ' — ' + xml(source.id) + '; version ' + xml(source.version) + '; verified ' + xml(source.lastVerifiedAt) + '</li>').join('') + '</ul>';
   }
   if (version.attachments.length) out += '<h2>Supporting attachments</h2><ul>' + version.attachments.map(file => '<li>' + attachmentLink(staged(options, file.id, file.url), xml(file.name)) + '</li>').join('') + '</ul>';
-  if (article) out += '</div></div>';
+  if (article) {
+    out += '</div><div class="wcs-native-article-control"><h2>' + (directInsight ? 'Article details' : 'Document control') + '</h2><p class="wcs-native-article-status">Published</p><dl><dt>Author</dt><dd>' + xml(personLabel(document.authorId || version.createdBy, people)) + '</dd><dt>' + (directInsight ? 'Collection' : 'Business area') + '</dt><dd>' + xml(directInsight ? 'Insights' : options.areaLabel || document.area) + '</dd><dt>Published</dt><dd>' + xml(date(version.publishedAt || version.approvedAt)) + '</dd>';
+    if (!directInsight) out += '<dt>Approved by</dt><dd>' + xml(personLabel(version.approvedBy, people)) + '</dd><dt>Next review</dt><dd>' + xml(date(version.nextReviewAt)) + '</dd>';
+    out += '</dl></div></div></div>';
+  }
   return out;
 }
 return Object.freeze({ renderStorage, collectMedia, mediaResources });
@@ -6380,7 +6387,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if (!Array.isArray(labels)) fail('Confluence did not return Insights article labels.', 'INVALID_SCOPE');
         var names = labels.map(function (label) { return label.name; }), type = names.map(search.typeFromLabel).find(Boolean);
         if (!options.types.includes(type)) return null;
-        return {id:id,title:plain(item.title),summary:'',type:type,category:'insights',status:'Published',tags:names.filter(function (name) {return typeof name === 'string' && name.startsWith('wcs-tag-');}).map(function (name) {return name.slice(8);}),updated:item.version?.when || null,version:item.version?.number || null,url:readerURL(id,names)};
+        return {id:id,title:(names.includes('wcs-published') || names.includes('wcs-reader'))?plain(item.title).replace(new RegExp(' · WCS ' + id + '$'),''):plain(item.title),summary:'',type:type,category:'insights',status:'Published',tags:names.filter(function (name) {return typeof name === 'string' && name.startsWith('wcs-tag-');}).map(function (name) {return name.slice(8);}),updated:item.version?.when || null,version:item.version?.number || null,url:readerURL(id,names)};
       }).filter(Boolean);
       // Advance by native rows, including untyped pages. Never infer completion
       // from the filtered card count or follow an arbitrary server URL.
@@ -6423,6 +6430,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           scope.additionalSubtreePageId = String(nativePublication.insightsPageId);
           scope.additionalSubtreeCategory = options.area;
         }
+      }
+      if (tree && options.area === 'insights') {
+        if (!/^[1-9]\d{0,19}$/.test(String(nativePublication.insightsPageId || ''))) fail('Configure the Insights subtree.', 'CONFIGURATION');
+        scope.subtreePageId = String(nativePublication.insightsPageId);
+        queryOptions.categories = []; // Native descendants do not need a synthetic business-area label.
       }
       if (options.insights) {
         if (!tree || !/^[1-9]\d{0,19}$/.test(String(nativePublication.insightsPageId || '')) || options.area) fail('Configure the Insights subtree.', 'CONFIGURATION');
@@ -6540,9 +6552,10 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         var normalized = { id: id, title: plain(result.title || item.title), summary: options.excerpt === false ? '' : typeof search.cleanExcerpt === 'function' ? search.cleanExcerpt(result.excerpt) : plain(result.excerpt), updated: result.lastModified || (item.version || {}).when || null, url: href };
         if (tree) {
           var names = labelNames(item) || [];
+          if (names.includes('wcs-published') || names.includes('wcs-reader')) normalized.title = normalized.title.replace(new RegExp(' · WCS ' + id + '$'), '');
           if (names.includes('wcs-reader')) normalized.url = readerURL(id,names);
           var area = names.find(function (name) { return /^wcs-area-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name); });
-          normalized.category = checked.insightArea ? scope.additionalSubtreeCategory : Object.keys(mappings).find(function (key) { return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(key) && (id === String(mappings[key]) || ancestors.indexOf(String(mappings[key])) >= 0); }) || (area ? area.slice('wcs-area-'.length) : null);
+          normalized.category = checked.insightArea ? scope.additionalSubtreeCategory : Object.keys(mappings).find(function (key) { return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(key) && (id === String(mappings[key]) || ancestors.indexOf(String(mappings[key])) >= 0); }) || (ancestors.includes(String(nativePublication.insightsPageId || '')) ? 'insights' : area ? area.slice('wcs-area-'.length) : null);
           normalized.type = typeof search.typeFromLabel === 'function' ? names.map(search.typeFromLabel).find(Boolean) || null : null;
           normalized.tags = names.filter(function (name) { return /^wcs-tag-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name); }).map(function (name) { return name.slice(8); });
           normalized.version = integer((item.version || {}).number) ? item.version.number : null;
@@ -9464,5 +9477,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['insights'] = { version: '631868d07867' };
+  modules['insights'] = { version: '6dcba5ff4bc0' };
 })();

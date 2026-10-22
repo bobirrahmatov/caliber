@@ -172,6 +172,32 @@ that old styling HTML macro in the native editor, or republish through WCSpedia
 already saved inside a Confluence page. Keep the four native styling labels and
 preserve article content, its inert reader-data macro, and live JSON.
 
+### Insights discovery and native article template
+
+- Insights now appears as a card inside the business-area grid, using the same
+  card styling. Explore includes Insights in its Collection filter.
+- Main search searches the WCSpedia descendant tree, including nested Insights
+  pages, without requiring publication/type labels. The Insights collection filter
+  scopes to descendants of the configured Insights parent (3961735728), not a
+  synthetic business-area label. Working/admin trees remain excluded. Native CQL
+  indexing can delay newly published search results; this update does not rebuild
+  or bypass the server index.
+- Native publications use a dedicated responsive article template: centred title,
+  cover, fluid body and details panel. No parent body, interface macro, header or
+  sidebar flag is copied. Reports and approved Job aids use this template too.
+- The native title retains its unique ` · WCS <page ID>` suffix to avoid collisions.
+  Search cards and the visible native page tree omit only that generated suffix
+  when it matches the linked page ID; stored titles and links are unchanged.
+
+Replace all installed page JS pairs, the shared CSS and the page-style-flags
+attachment with the matching HTML/cache URLs in this package. Keep the existing
+navBar include and live JSON. New native template structure applies on the next
+explicit publication; existing published pages require republishing (normal
+approval for Job aids). The CSS and navigation display fixes apply immediately
+when the new assets are loaded. Do not copy the Insights page HTML into articles.
+Full interactive history/health/actions remain in the WCSpedia reader; the native
+page is a readable, styled publication using the same visual layout.
+
 ## Configured page IDs
 
 Space key: `wcspedia`. Context: `/confluence`. Attachment page: `3962195316`.

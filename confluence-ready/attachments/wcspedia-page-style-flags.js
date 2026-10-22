@@ -10,6 +10,8 @@
   var flags = ['hide-title', 'hide-actions', 'hide-comments', 'hide-footer'];
   var selector = '[data-wcs-document-page][data-wcs-style-flags], span[id$="wcs-page-style-v1"], a[id$="wcs-page-style-v1"], a[name$="wcs-page-style-v1"]';
   var labelSelector = '#labels-section .aui-label, #labels-section .label, #labels-section a';
+  var treeSelector = '.ia-fixed-sidebar, .acs-side-bar, #sidebar, .plugin_pagetree';
+  var cleanedTitles = new Map();
   var interfaceRoot = '#wcspedia';
   var excluded = 'pre, code, textarea, [contenteditable="true"], .mce-content-body, #editor, #content-editor, #macro-browser, .macro-preview, [data-wcs-style-flags-ignore]';
   var editor = '#editpageform, #wysiwygTextarea, #content-editor, body.contenteditor';
@@ -56,9 +58,37 @@
     return optedOut ? [] : flags.filter(function (flag) { return requested[flag]; });
   }
 
+  function restoreTreeTitles() {
+    cleanedTitles.forEach(function (value, node) { if (node.isConnected && node.nodeValue === value.clean) node.nodeValue = value.original; });
+    cleanedTitles.clear();
+  }
+
   function release() {
     if (document.body) document.body.removeAttribute('data-wcs-active-style-flags');
+    restoreTreeTitles();
     markers = [];
+  }
+
+  function cleanTreeTitles() {
+    // Presentation only: retain the native unique title, href, page ID and all
+    // tree controls. Match the generated suffix to that exact link's page ID.
+    document.querySelectorAll(treeSelector).forEach(function (tree) {
+      tree.querySelectorAll('a[href]').forEach(function (link) {
+        try {
+          var url = new URL(link.getAttribute('href'), window.location.href);
+          if (url.origin !== window.location.origin) return;
+          var id = url.searchParams.get('pageId') || (url.pathname.match(/\/pages\/(\d+)(?:\/|$)/) || [])[1];
+          if (!/^[1-9]\d{0,19}$/.test(id || '')) return;
+          var suffix = ' · WCS ' + id, walker = document.createTreeWalker(link, 4), node;
+          while ((node = walker.nextNode())) {
+            if (node.nodeValue.trimEnd().endsWith(suffix)) {
+              var original = node.nodeValue, clean = original.trimEnd().slice(0,-suffix.length);
+              cleanedTitles.set(node,{original:original,clean:clean});node.nodeValue = clean;
+            }
+          }
+        } catch (_) { /* Leave unknown native navigation formats unchanged. */ }
+      });
+    });
   }
 
   function stopObserving() {
@@ -68,7 +98,8 @@
 
   function relevantNode(node) {
     if (node.nodeType !== 1) return false;
-    var relevant = selector + ', ' + labelSelector + ', ' + interfaceRoot + ', ' + editor + ', meta[name="ajs-action"]';
+    var relevant = selector + ', ' + labelSelector + ', ' + treeSelector + ', ' + interfaceRoot + ', ' + editor + ', meta[name="ajs-action"]';
+    if (node.closest(treeSelector)) return true;
     return node.matches(relevant) || !!node.querySelector(relevant);
   }
 
@@ -121,6 +152,8 @@
     }
     if(requested.length) document.body.setAttribute('data-wcs-active-style-flags', requested.join(' '));
     else document.body.removeAttribute('data-wcs-active-style-flags');
+    if (requested.length) cleanTreeTitles();
+    else restoreTreeTitles();
     if (booting || requested.length) observe();
     else stopObserving();
     return requested.slice();
