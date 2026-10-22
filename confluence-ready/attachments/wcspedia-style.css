@@ -1389,6 +1389,21 @@
 #wcspedia .wcs-insights-topic-filter .wcs-ui-select{width:180px!important}
 @media(max-width:520px){#wcspedia .wcs-insights-search.wcs-data-table-search{max-width:none!important;min-width:0!important;width:100%!important;flex-basis:100%!important}#wcspedia .wcs-insights-topic-filter{margin-bottom:12px!important}}
 
+#wcspedia .wcs-insights-entry { display: flex; align-items: center; gap: 20px; margin-top: 24px; padding: 26px 30px; border-radius: 18px; background: #edf3fc; color: #17365d; text-decoration: none; transition: background .16s ease; }
+#wcspedia .wcs-insights-entry:hover { background: #e1ebfb; }
+#wcspedia .wcs-insights-entry:focus-visible { outline: 3px solid #255be3; outline-offset: 3px; }
+#wcspedia .wcs-insights-entry > span:nth-child(2) { flex: 1; min-width: 0; }
+#wcspedia .wcs-insights-entry strong { display: block; font-size: 22px; margin-bottom: 6px; }
+#wcspedia .wcs-insights-entry span span { display: block; line-height: 1.5; }
+#wcspedia .wcs-insights-entry svg { width: 24px; height: 24px; }
+#wcspedia .wcs-insights-entry-icon { color: #255be3; }
+#wcspedia .wcs-delete-key-heading { display: grid; gap: 10px; margin-top: 24px; margin-bottom: 10px; }
+#wcspedia .wcs-delete-key-heading > div { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+#wcspedia .wcs-delete-key-value { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; font-size: 14px; }
+#wcspedia .wcs-delete-key-heading .button { flex: none; padding: 8px 12px; }
+#wcspedia #delete-key { width: 100%; box-sizing: border-box; margin-bottom: 24px; }
+@media (prefers-reduced-motion: reduce) { #wcspedia .wcs-insights-entry { transition: none; } }
+
 /* Native article chrome only. The helper sets this attribute on marked page
    views and removes it in editors, previews, app pages and on teardown.
    Do not hide navBar, the article h1, WCSpedia discussion or article actions. */
@@ -1400,3 +1415,18 @@ body[data-wcs-active-style-flags~="hide-comments"] #add-comment,
 body[data-wcs-active-style-flags~="hide-footer"] #footer {
   display: none !important;
 }
+
+/* Native Insights reader. Content stays in Confluence storage; no extra fetch,
+   duplicated article body or page-wide reset is required for this layout. */
+.wcs-native-article { box-sizing: border-box; width: 100%; max-width: 1080px; margin: 24px auto 64px; background: #fff; color: #17365d; border-radius: 24px; overflow: hidden; font-family: inherit; }
+.wcs-native-article .wcs-native-article-heading { padding: clamp(24px, 5vw, 64px) clamp(24px, 6vw, 80px) 28px; background: #f0f5fa; }
+.wcs-native-article .wcs-native-article-kicker { margin: 0 0 18px; color: #255be3; font-size: 14px; font-weight: 700; letter-spacing: .04em; }
+.wcs-native-article h1 { margin: 0 0 24px; color: #17365d; font-size: clamp(30px, 4vw, 52px); font-weight: 400; line-height: 1.15; overflow-wrap: anywhere; }
+.wcs-native-article .wcs-native-article-byline { margin: 0; color: #53677d; font-size: 14px; line-height: 1.6; }
+.wcs-native-article .wcs-native-article-body { padding: 28px clamp(24px, 6vw, 80px) 48px; font-size: 17px; line-height: 1.75; overflow-wrap: anywhere; }
+.wcs-native-article .wcs-native-article-body > :first-child { margin-top: 0; }
+.wcs-native-article .wcs-native-article-body h2 { margin-top: 32px; line-height: 1.3; }
+.wcs-native-article .wcs-native-article-body img { max-width: 100%; height: auto; border-radius: 12px; }
+.wcs-native-article .wcs-native-article-body pre { overflow-x: auto; }
+.wcs-native-article .wcs-native-article-body table { max-width: 100%; }
+.wcs-native-article .wcs-native-article-kicker a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }

@@ -108,6 +108,18 @@ Replace the runtime attachments from this package, the matching page HTML fragme
 
 Verification on the internal site: publish one Blog, open All Insights, then its native reader page. Confirm the page is beneath Insights, the intended chrome flags apply, and it has no Job aid approval badges. Submit a first helpfulness vote, then reload and confirm it remains selected. Local tests do not verify your internal server or host theme implementation.
 
+## Native Insights article template and discovery — 22 October update
+
+The native publication template now contains an **HTML macro** with a fixed script calling `citiStyleAdd("hide-title", "hide-comments", "hide-actions", "hide-footer")`. It retries briefly if the existing theme API is still initializing. It never interpolates author content into JavaScript, adds no network calls, and skips editing, preview and app pages. The shared navBar helper remains useful when the host theme initializes later.
+
+Published Insights use a reader layout with one content title, byline, summary, cover and article body. The administrative Page Properties table remains stored with `hidden=true`; it no longer dominates the reader page. Native code, images and attachment macros remain native content. The article's Insights link returns to the configured parent, **3961735728**. This is a presentation change, not a permission change.
+
+**Installation:** replace the attachments from this package on **3962195316**, update the matching page HTML fragments, the navBar fragment and your single global stylesheet. Preserve your live JSON. Existing article bodies are stored in Confluence: uploading JavaScript alone cannot replace their old metadata-table template. Open an existing Blog in My Workspace, edit it and publish the updated revision to Insights to regenerate its reader body. Do not delete/recreate the article. For a flags-only correction on an existing article, paste `html/wcspedia-page-style-flags-marker.html` into an HTML macro in that article (not navBar); this alone does not redesign its old body.
+
+The landing page now has an **Insights (Blogs)** card below the business areas. Main search covers documents and Insights under WCSpedia; the card opens the existing dedicated Insights search. Do not put Insights under Working: that private subtree is intentionally excluded from discovery. Native text search still depends on Confluence indexing; All Insights can show a newly published native child before its text is indexed. No article-body scanning or extra per-result requests are added.
+
+Delete confirmation now shows the document key above the blank confirmation field, with a Copy button and a selectable-text fallback. Copying never submits deletion or automatically fills the confirmation field.
+
 ## Configured page IDs
 
 Space key: `wcspedia`. Context: `/confluence`. Attachment page: `3962195316`.

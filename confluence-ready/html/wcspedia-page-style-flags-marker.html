@@ -1,8 +1,21 @@
-<!-- Optional marker for an EXISTING native WCSpedia CHILD DOCUMENT page.
-Do not put this in the landing page, workspace, reviewer, saved, entitlements
-page or shared header. The shared header must already load
-wcspedia-page-style-flags.js. Keep a visible document heading in the content.
-New publisher-created child documents already include a native Anchor marker
-and do not need this extra HTML macro. Use data-wcs-style-flags="none" to opt out.
--->
-<span hidden data-wcs-document-page data-wcs-style-flags="hide-title hide-actions hide-comments hide-footer"></span>
+<!-- Paste this fragment into an HTML macro on an EXISTING native article only.
+Keep the article's own heading. Do not put it in navBar or a WCSpedia interface page.
+Newly published articles include this macro automatically. The shared navbar
+helper also maintains the flags when the host theme initializes later. -->
+<span hidden data-wcs-document-page data-wcs-style-flags="hide-title hide-comments hide-actions hide-footer"></span>
+<script>
+(function () {
+  var tries = 0;
+  function apply() {
+    if (!/\/(?:spaces\/|display\/|pages\/viewpage\.action)/.test(location.pathname) ||
+        document.getElementById('wcspedia') ||
+        new URLSearchParams(location.search).get('wcsNativeUi') === '1') return;
+    if (typeof window.citiStyleAdd === 'function') {
+      window.citiStyleAdd("hide-title", "hide-comments", "hide-actions", "hide-footer");
+      return;
+    }
+    if (++tries < 20) window.setTimeout(apply, 250);
+  }
+  apply();
+})();
+</script>

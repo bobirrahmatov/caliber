@@ -3781,7 +3781,8 @@
 /* Source: space-renderer.js */
 /* Browser-safe native Confluence storage renderer. Adapted from confluence-storage.cjs.
  * This only validates/renders; native permissions remain enforced by Confluence.
- * No arbitrary remote media fetching, raw HTML, script or iframe injection. */
+ * User content cannot inject raw HTML or scripts. The host-style HTML macro is
+ * a fixed application template, never constructed from article text. */
 (function(root,factory){
   'use strict';
   const node = typeof module === 'object' && module.exports;
@@ -3795,6 +3796,7 @@
 'use strict';
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
 const EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+const HOST_STYLE_HTML = '<script>\n(function () {\n  var tries = 0;\n  function apply() {\n    if (!/\\/(?:spaces\\/|display\\/|pages\\/viewpage\\.action)/.test(location.pathname) ||\n        document.getElementById(\'wcspedia\') ||\n        new URLSearchParams(location.search).get(\'wcsNativeUi\') === \'1\') return;\n    if (typeof window.citiStyleAdd === \'function\') {\n      window.citiStyleAdd("hide-title", "hide-comments", "hide-actions", "hide-footer");\n      return;\n    }\n    if (++tries < 20) window.setTimeout(apply, 250);\n  }\n  apply();\n})();\n</script>';
 const STATUSES = new Set(['Draft', 'In review', 'Changes requested', 'Awaiting approval', 'Published']);
 function fail(message) { const error = new Error(message); error.code = 'CONFLUENCE_STORAGE_INVALID'; throw error; }
 function plain(value) {
@@ -3973,16 +3975,22 @@ function renderStorage(document, selected, people = [], options = {}) {
   else if (published) rows.push(['Approved by', personLabel(version.approvedBy, people)], ['Approval date', date(version.approvedAt)], ['Effective date', date(version.effectiveAt)]);
   else if (!directInsight) rows.push(['Approval', 'Not approved for publication']);
   ['tags', 'processes', 'regions'].forEach(kind => { const values = content.validateTags(version[kind] || [], kind); if (values.length) rows.push([kind === 'tags' ? 'Topics' : kind === 'regions' ? 'Regions covered' : 'Processes', values.join(', ')]); });
-  // The shared header applies host chrome flags only to explicitly marked page
-  // views. Keep a real content heading when the native title is hidden; native
-  // editing/preview remains outside that helper's scope. No script is stored in
-  // the document body. Legacy render callers can retain native chrome.
-  let out = options.hostStyleFlags === true
-    ? '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-page-style-v1</ac:parameter></ac:structured-macro><h1>' + xml(version.title) + '</h1>'
-    : '';
+  const article = options.hostStyleFlags === true && published && directInsight;
+  let out = '';
+  if (options.hostStyleFlags === true) {
+    out = '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-page-style-v1</ac:parameter></ac:structured-macro>';
+    out += '<ac:structured-macro ac:name="html" ac:schema-version="1"><ac:plain-text-body>' + cdata(HOST_STYLE_HTML) + '</ac:plain-text-body></ac:structured-macro>';
+    if (article) {
+      if (options.insightsUrl != null && !/^\/(?:[A-Za-z0-9_-]+\/)*pages\/viewpage\.action\?pageId=[1-9]\d{0,19}$/.test(options.insightsUrl)) fail('Use a same-origin native Insights page link.');
+      out += '<div class="wcs-native-article"><div class="wcs-native-article-heading"><p class="wcs-native-article-kicker">' + (options.insightsUrl ? '<a href="' + xml(options.insightsUrl) + '">Insights</a>' : 'Insights') + ' · ' + xml(document.type) + '</p>';
+    }
+    out += '<h1>' + xml(version.title) + '</h1>';
+    if (article) out += '<p class="wcs-native-article-byline">' + xml(personLabel(document.authorId || version.createdBy, people)) + ' · ' + xml(date(version.publishedAt)) + '</p></div>';
+  }
   // Same native body revision as the approved content: no separate-property write race.
   out += '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-comments-v1-' + (version.commentsEnabled ? 'enabled' : 'disabled') + '</ac:parameter></ac:structured-macro>';
-  out += '<ac:structured-macro ac:name="details" ac:schema-version="1"><ac:parameter ac:name="id">wcspedia-document</ac:parameter><ac:rich-text-body>' + table(rows) + '</ac:rich-text-body></ac:structured-macro>';
+  out += '<ac:structured-macro ac:name="details" ac:schema-version="1"><ac:parameter ac:name="id">wcspedia-document</ac:parameter>' + (article ? '<ac:parameter ac:name="hidden">true</ac:parameter>' : '') + '<ac:rich-text-body>' + table(rows) + '</ac:rich-text-body></ac:structured-macro>';
+  if (article) out += '<div class="wcs-native-article-body">';
   if (version.summary) out += '<ac:structured-macro ac:name="excerpt" ac:schema-version="1"><ac:rich-text-body><p>' + xml(version.summary) + '</p></ac:rich-text-body></ac:structured-macro>';
   if (version.cover) out += '<p>' + imageTag(staged(options, '$cover', version.cover.src), version.cover.alt) + '</p>' + (version.cover.caption ? '<p><em>' + xml(version.cover.caption) + '</em></p>' : '');
   if (Array.isArray(version.highlights) && version.highlights.length) out += '<h2>Key points</h2><ul>' + version.highlights.map(item => '<li>' + xml(item) + '</li>').join('') + '</ul>';
@@ -3992,6 +4000,7 @@ function renderStorage(document, selected, people = [], options = {}) {
     if (governance.sources.length) out += '<h3>Authoritative sources</h3><ul>' + governance.sources.map(source => '<li>' + (source.url ? '<a href="' + xml(source.url) + '">' + xml(source.title) + '</a>' : xml(source.title)) + ' — ' + xml(source.id) + '; version ' + xml(source.version) + '; verified ' + xml(source.lastVerifiedAt) + '</li>').join('') + '</ul>';
   }
   if (version.attachments.length) out += '<h2>Supporting attachments</h2><ul>' + version.attachments.map(file => '<li>' + attachmentLink(staged(options, file.id, file.url), xml(file.name)) + '</li>').join('') + '</ul>';
+  if (article) out += '</div></div>';
   return out;
 }
 return Object.freeze({ renderStorage, collectMedia, mediaResources });
@@ -4328,7 +4337,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function bodyWrite(p,document,media,kind,requestId,expectedParent,signal){
       if(marked(p,'wcs-operation-'+requestId))return p;
       var initial=markers(p).find(function(value){return /^wcs-created-[a-zA-Z0-9-]{16,100}$/.test(value);});
-      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true});
+      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
       var suffix=' · WCS '+p.id;
       var title=kind==='published'?v.title.slice(0,250-suffix.length)+suffix:'WCSpedia working '+document.id;
       var response=await request('/rest/api/content/'+p.id,'PUT',{id:p.id,type:'page',title:title.slice(0,250),space:{key:space},ancestors:[{id:expectedParent}],version:{number:p.version.number+1,message:'WCSpedia '+kind+' '+v.status+' v'+v.version+' r'+v.revision+' · '+requestId},body:{storage:{representation:'storage',value:body}}},signal);
@@ -9395,5 +9404,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['home'] = { version: '2c7d496e4f5a' };
+  modules['home'] = { version: 'b78a9db3b80d' };
 })();
