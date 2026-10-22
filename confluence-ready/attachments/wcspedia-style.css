@@ -395,6 +395,13 @@
 #wcspedia .discovery-container,#wcspedia .entitlement-directory,#wcspedia .review-container,#wcspedia .category-layout{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important}
 #wcspedia .results-title-row>div,#wcspedia .panel-heading>div{min-width:0}
 #wcspedia .results-title-row h1,#wcspedia .panel-heading h2{overflow-wrap:anywhere}
+/* Every reader tab uses the same fluid main column. The old 770px article
+   cap left an empty strip on wide screens while health/history filled it. */
+#wcspedia .detail-page .detail-layout{width:100%;min-width:0}
+#wcspedia .detail-page .detail-main{width:100%;min-width:0}
+#wcspedia .detail-page .detail-main>.document-body{box-sizing:border-box!important;width:100%!important;max-width:none!important;min-width:0!important;margin:0!important;padding:0!important;overflow-wrap:anywhere}
+#wcspedia .detail-page .document-body>.markdown-body{box-sizing:border-box;width:100%;max-width:none;min-width:0}
+#wcspedia .detail-page .control-panel{min-width:0;overflow-wrap:anywhere}
 /* Native search cancellation is blue in Chromium/Safari. Use one keyboard-
  * accessible clear control with the same neutral icon treatment as this UI. */
 #wcspedia .discovery-search{background:#fff!important;border:1px solid #c5d3e2!important;border-radius:10px!important;box-sizing:border-box!important}
@@ -1426,3 +1433,6 @@ body[data-wcs-active-style-flags~="hide-footer"] #footer {
 .wcs-native-article .wcs-native-article-body pre { overflow-x: auto; }
 .wcs-native-article .wcs-native-article-body table { max-width: 100%; }
 .wcs-native-article .wcs-native-article-kicker a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+.wcs-open-published-reader { display: inline-flex; align-items: center; padding: 12px 20px; margin: 16px 0; border-radius: 8px; background: #255be3; color: #fff !important; font: inherit; text-decoration: none; }
+.wcs-open-published-reader:focus-visible { outline: 3px solid #17365d; outline-offset: 3px; }

@@ -3781,8 +3781,8 @@
 /* Source: space-renderer.js */
 /* Browser-safe native Confluence storage renderer. Adapted from confluence-storage.cjs.
  * This only validates/renders; native permissions remain enforced by Confluence.
- * User content cannot inject raw HTML or scripts. The host-style HTML macro is
- * a fixed application template, never constructed from article text. */
+ * User content cannot inject raw HTML or executable scripts. Styling uses
+ * native labels/markers and the shared stylesheet, without host JS calls. */
 (function(root,factory){
   'use strict';
   const node = typeof module === 'object' && module.exports;
@@ -3796,7 +3796,6 @@
 'use strict';
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
 const EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
-const HOST_STYLE_HTML = '<script>\n(function () {\n  var tries = 0;\n  function apply() {\n    if (!/\\/(?:spaces\\/|display\\/|pages\\/viewpage\\.action)/.test(location.pathname) ||\n        document.getElementById(\'wcspedia\') ||\n        new URLSearchParams(location.search).get(\'wcsNativeUi\') === \'1\') return;\n    if (typeof window.citiStyleAdd === \'function\') {\n      window.citiStyleAdd("hide-title", "hide-comments", "hide-actions", "hide-footer");\n      return;\n    }\n    if (++tries < 20) window.setTimeout(apply, 250);\n  }\n  apply();\n})();\n</script>';
 const STATUSES = new Set(['Draft', 'In review', 'Changes requested', 'Awaiting approval', 'Published']);
 function fail(message) { const error = new Error(message); error.code = 'CONFLUENCE_STORAGE_INVALID'; throw error; }
 function plain(value) {
@@ -3829,6 +3828,24 @@ function snapshot(document, version) {
   } else if (version.sourceImportedAt != null) fail('Source import time requires source metadata.');
   const ids = new Set(); assets.concat(attachments).forEach(item => { if (ids.has(item.id)) fail('Image and attachment IDs must be unique.'); ids.add(item.id); });
   return { ...version, commentsEnabled: content.validateCommentsEnabled(version.commentsEnabled), sourceMetadata, assets, attachments, cover: content.validateCover(version.cover || null) };
+}
+// Public reader snapshot shares the native body revision. Never copy a working
+// document, audit trail, governance review or another version into this payload.
+function readerPayload(document, version, people, options) {
+  const doc = {}, v = {};
+  ['id','reference','type','area','publicationMode','ownerId','authorId','reviewerId','approverId'].forEach(k => { if (document[k] != null) doc[k] = document[k]; });
+  ['version','revision','title','summary','status','bodyMarkdown','sections','highlights','tags','processes','regions','commentsEnabled','createdAt','createdBy','publishedAt','approvedAt','approvedBy','reviewedAt','reviewedBy','effectiveAt','nextReviewAt','governance','sourceMetadata','sourceImportedAt'].forEach(k => { if (version[k] != null) v[k] = version[k]; });
+  const mapped = (key, source) => { const item = mapping(options, key, source); if (!item || !item.url) fail('The published reader resource must be staged.'); return item.url; };
+  v.assets = (version.assets || []).map(a => ({id:a.id,alt:a.alt,src:mapped(a.id,a.src)}));
+  v.attachments = (version.attachments || []).map(a => ({id:a.id,name:a.name,mimeType:a.mimeType,size:a.size,url:mapped(a.id,a.url)}));
+  v.cover = version.cover ? {...version.cover,src:mapped('$cover',version.cover.src)} : null;
+  // Inline images also need the public copy, never the restricted working URL.
+  Object.values(options.media || {}).forEach(m => { if (m.sourceUrl && m.url && v.bodyMarkdown) v.bodyMarkdown = v.bodyMarkdown.split(m.sourceUrl).join(m.url); });
+  if (v.bodyMarkdown) v.sections = content.toSections(v.bodyMarkdown);
+  doc.publishedVersion = v.version; doc.versions = [v]; doc.audit = [];
+  const ids = new Set([doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId,v.createdBy,v.approvedBy,v.reviewedBy]);
+  const directory = people.filter(p => ids.has(p.id)).map(p => ({id:p.id,name:p.name,initials:p.initials || '',role:'Reader'}));
+  return {format:1,pageId:String(options.readerPageId),nativeVersion:options.readerNativeVersion,document:doc,people:directory};
 }
 function createParser() {
   const parser = new MarkdownIt({ html: false, linkify: false, typographer: false, maxNesting: 30 });
@@ -3979,13 +3996,18 @@ function renderStorage(document, selected, people = [], options = {}) {
   let out = '';
   if (options.hostStyleFlags === true) {
     out = '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-page-style-v1</ac:parameter></ac:structured-macro>';
-    out += '<ac:structured-macro ac:name="html" ac:schema-version="1"><ac:plain-text-body>' + cdata(HOST_STYLE_HTML) + '</ac:plain-text-body></ac:structured-macro>';
     if (article) {
       if (options.insightsUrl != null && !/^\/(?:[A-Za-z0-9_-]+\/)*pages\/viewpage\.action\?pageId=[1-9]\d{0,19}$/.test(options.insightsUrl)) fail('Use a same-origin native Insights page link.');
       out += '<div class="wcs-native-article"><div class="wcs-native-article-heading"><p class="wcs-native-article-kicker">' + (options.insightsUrl ? '<a href="' + xml(options.insightsUrl) + '">Insights</a>' : 'Insights') + ' · ' + xml(document.type) + '</p>';
     }
     out += '<h1>' + xml(version.title) + '</h1>';
     if (article) out += '<p class="wcs-native-article-byline">' + xml(personLabel(document.authorId || version.createdBy, people)) + ' · ' + xml(date(version.publishedAt)) + '</p></div>';
+  }
+  if (published && options.readerPageId && options.readerRootId) {
+    if (!/^[1-9]\d{0,19}$/.test(String(options.readerPageId)) || !/^[1-9]\d{0,19}$/.test(String(options.readerRootId))) fail('Invalid reader page mapping.');
+    const payload = JSON.stringify(readerPayload(document,version,people,options)).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');
+    const marker = '<script type="application/json" id="wcs-published-reader" data-wcs-reader-root="' + options.readerRootId + '">' + payload + '</script>';
+    out += '<ac:structured-macro ac:name="html" ac:schema-version="1"><ac:plain-text-body>' + cdata(marker) + '</ac:plain-text-body></ac:structured-macro>';
   }
   // Same native body revision as the approved content: no separate-property write race.
   out += '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-comments-v1-' + (version.commentsEnabled ? 'enabled' : 'disabled') + '</ac:parameter></ac:structured-macro>';
@@ -4335,13 +4357,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     function publicationParent(doc){return Content.isDirectPublication(doc)||['Blog','Knowledge sharing','Reference'].includes(doc.type)?insightsId:areas[doc.area];}
     async function destination(doc,signal){var id=publicationParent(doc);if(!id)fail('Select a configured business-area destination.','INVALID_MAPPING');return page(id,signal,rootId);}
     async function bodyWrite(p,document,media,kind,requestId,expectedParent,signal){
-      if(marked(p,'wcs-operation-'+requestId))return p;
+      if(marked(p,'wcs-operation-'+requestId)){p.readerReady=marked(p,'wcs-reader-v1');return p;}
       var initial=markers(p).find(function(value){return /^wcs-created-[a-zA-Z0-9-]{16,100}$/.test(value);});
-      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
+      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
       var suffix=' · WCS '+p.id;
       var title=kind==='published'?v.title.slice(0,250-suffix.length)+suffix:'WCSpedia working '+document.id;
       var response=await request('/rest/api/content/'+p.id,'PUT',{id:p.id,type:'page',title:title.slice(0,250),space:{key:space},ancestors:[{id:expectedParent}],version:{number:p.version.number+1,message:'WCSpedia '+kind+' '+v.status+' v'+v.version+' r'+v.revision+' · '+requestId},body:{storage:{representation:'storage',value:body}}},signal);
-      var result=assertPage(response,expectedParent);if(result.version.number!==p.version.number+1)fail('The native page update was not confirmed.','UNKNOWN_COMMIT');return result;
+      var result=assertPage(response,expectedParent);if(result.version.number!==p.version.number+1)fail('The native page update was not confirmed.','UNKNOWN_COMMIT');result.readerReady=kind==='published';return result;
     }
     async function ensureSummary(p,doc,signal){
       var value={schemaVersion:1,documentKey:doc.id,people:[doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId],status:doc.deletedAt?'Deleted':W.currentVersion(doc).status},old=await storage.property(p.id,SUMMARY,options(signal));
@@ -4349,7 +4371,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     }
     async function syncLabels(p,doc,signal){
       function label(kind,value){var slug=String(value).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80);return slug?'wcs-'+kind+'-'+slug:null;}
-      var v=W.currentVersion(doc),labels=['wcs-published',label('area',doc.area),label('type',doc.type)];
+      var v=W.currentVersion(doc),labels=['wcs-published',p.readerReady?'wcs-reader':null,'hide-title','hide-comments','hide-actions','hide-footer',label('area',doc.area),label('type',doc.type)];
       [['tag','tags'],['process','processes'],['region','regions']].forEach(function(pair){(v[pair[1]]||[]).forEach(function(value){labels.push(label(pair[0],value));});});labels=Array.from(new Set(labels.filter(Boolean)));
       var previous=await request('/rest/api/content/'+p.id+'/label?limit=200',null,undefined,signal);if(!previous||!Array.isArray(previous.results)||previous._links&&previous._links.next)fail('The page label list could not be safely reconciled.','LABEL_LIMIT');
       var obsolete=previous.results.map(function(l){return l.name;}).filter(function(name){return /^wcs-(?:area|type|tag|topic|process|region)-/.test(name)&&!labels.includes(name);});
@@ -4448,6 +4470,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         published=await bodyWrite(published,doc,publishedMedia,'published',requestId,String(dest.id),signal);
         doc.publishedConfluencePageId=String(published.id);doc.publishedConfluencePageVersion=published.version.number;
         await syncLabels(published,doc,signal);
+        doc.publishedReader=published.readerReady===true;
       }
       if(command.action==='delete'&&doc.publishedConfluencePageId)await trashPublished(doc,signal);
       doc=externalize(doc,media);delete doc._people;doc.nativeSessionWorkflow=true;doc.confluencePageId=String(p.id);doc.confluencePageVersion=p.version.number;doc.lastRequestId=requestId;
@@ -6297,6 +6320,42 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       }
       return subscribeSearch(entry, options.signal);
     }
+    function readerURL(id, names) {
+      return names.includes('wcs-reader') ? endpoint('/pages/viewpage.action').href + '?pageId=' + pageId + '#/published/' + id : endpoint('/pages/viewpage.action').href + '?pageId=' + id;
+    }
+    async function loadPublishedArticle(id, options) {
+      options = options || {};
+      if (!/^[1-9]\d{0,19}$/.test(String(id))) fail('Invalid article page.', 'INVALID_SCOPE');
+      var space = await waitForSearchSpace(options.signal);
+      var page = await json(await request(endpoint('/rest/api/content/' + id + '?expand=space,ancestors,version,body.storage'), {signal:options.signal}));
+      var excluded = searchExclusions({}), ancestors = page.ancestors;
+      if (String(page.id) !== String(id) || page.type !== 'page' || page.status !== 'current' || page.space?.key !== space || !Array.isArray(ancestors) || !ancestors.some(a => String(a.id) === pageId) || excluded.pages.includes(String(id)) || ancestors.some(a => excluded.trees.includes(String(a.id)))) fail('This published article is outside the configured library.', 'INVALID_SCOPE');
+      var Parser = dependencies.DOMParser || root.DOMParser;
+      if (!Parser) fail('The article reader is unavailable.', 'CONFIGURATION');
+      var xml = new Parser().parseFromString('<root xmlns:ac="urn:ac" xmlns:ri="urn:ri">' + (page.body?.storage?.value || '') + '</root>', 'application/xml');
+      if (xml.querySelector('parsererror')) fail('The article body could not be read.', 'INVALID_DATA');
+      var snapshots = [];
+      Array.from(xml.getElementsByTagNameNS('urn:ac','structured-macro')).forEach(function (macro) {
+        for (var parent = macro.parentElement; parent && parent !== xml.documentElement; parent = parent.parentElement) if (parent.namespaceURI === 'urn:ac' || ['pre','code'].includes(parent.localName)) return;
+        if (macro.localName !== 'structured-macro' || macro.getAttributeNS('urn:ac','name') !== 'html') return;
+        var plain = Array.from(macro.children).find(el => el.localName === 'plain-text-body');
+        if (!plain) return;
+        var html = new Parser().parseFromString(plain.textContent, 'text/html');
+        Array.from(html.querySelectorAll('script#wcs-published-reader[type="application/json"]')).forEach(el => snapshots.push(el));
+      });
+      if (snapshots.length !== 1) fail('This article needs to be republished once with the current template to use the WCSpedia reader.', 'READER_NOT_INSTALLED');
+      var node = snapshots[0], payload = JSON.parse(node.textContent);
+      if (payload.format !== 1 || payload.pageId !== String(id) || node.getAttribute('data-wcs-reader-root') !== pageId) fail('The article reader mapping is invalid.', 'INVALID_SCOPE');
+      if (!integer(payload.nativeVersion) || payload.nativeVersion !== page.version?.number) fail('This page was changed outside the WCSpedia editor. View the native page or reconcile and republish it from My Workspace.', 'READER_STALE');
+      var doc = payload.document;
+      if (!object(doc) || doc.confluencePageId || doc.publishedConfluencePageId || doc.deletedAt) fail('Invalid public article.', 'INVALID_DATA');
+      var destination = directPublication(doc) ? String(nativePublication.insightsPageId || '') : String((nativePublication.areaPageIds || {})[doc.area] || '');
+      if (String(ancestors.at(-1)?.id) !== destination) fail('The article is not in its publishing destination.', 'INVALID_SCOPE');
+      var data = {people:payload.people,documents:[doc],areas:[{id:doc.area,title:doc.area}]};
+      publishedProjection(validateData(data));
+      doc.publishedConfluencePageId = String(id); doc.publishedConfluencePageVersion = page.version.number; doc.publicReader = true;
+      return {document:doc,people:payload.people};
+    }
     async function insightChildren(options, search) {
       var parent = String(nativePublication.insightsPageId || ''), limit = options.limit || 9, start = options.start || 0;
       if (!/^[1-9]\d{0,19}$/.test(parent) || parent === pageId) fail('Configure the Insights parent page.', 'CONFIGURATION');
@@ -6321,7 +6380,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if (!Array.isArray(labels)) fail('Confluence did not return Insights article labels.', 'INVALID_SCOPE');
         var names = labels.map(function (label) { return label.name; }), type = names.map(search.typeFromLabel).find(Boolean);
         if (!options.types.includes(type)) return null;
-        return {id:id,title:plain(item.title),summary:'',type:type,category:'insights',status:'Published',tags:names.filter(function (name) {return typeof name === 'string' && name.startsWith('wcs-tag-');}).map(function (name) {return name.slice(8);}),updated:item.version?.when || null,version:item.version?.number || null,url:endpoint('/pages/viewpage.action').href + '?pageId=' + id};
+        return {id:id,title:plain(item.title),summary:'',type:type,category:'insights',status:'Published',tags:names.filter(function (name) {return typeof name === 'string' && name.startsWith('wcs-tag-');}).map(function (name) {return name.slice(8);}),updated:item.version?.when || null,version:item.version?.number || null,url:readerURL(id,names)};
       }).filter(Boolean);
       // Advance by native rows, including untyped pages. Never infer completion
       // from the filtered card count or follow an arbitrary server URL.
@@ -6481,6 +6540,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         var normalized = { id: id, title: plain(result.title || item.title), summary: options.excerpt === false ? '' : typeof search.cleanExcerpt === 'function' ? search.cleanExcerpt(result.excerpt) : plain(result.excerpt), updated: result.lastModified || (item.version || {}).when || null, url: href };
         if (tree) {
           var names = labelNames(item) || [];
+          if (names.includes('wcs-reader')) normalized.url = readerURL(id,names);
           var area = names.find(function (name) { return /^wcs-area-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name); });
           normalized.category = checked.insightArea ? scope.additionalSubtreeCategory : Object.keys(mappings).find(function (key) { return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(key) && (id === String(mappings[key]) || ancestors.indexOf(String(mappings[key])) >= 0); }) || (area ? area.slice('wcs-area-'.length) : null);
           normalized.type = typeof search.typeFromLabel === 'function' ? names.map(search.typeFromLabel).find(Boolean) || null : null;
@@ -6590,7 +6650,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       output.complete = true; emit();
       return output;
     }
-    return Object.freeze({ load: load, loadAccess: loadAccess, inspectEntitlementRecovery: inspectEntitlementRecovery, reconcileEntitlementAttachment: reconcileEntitlementAttachment, loadMetrics: loadMetrics, recordView: recordView, submitAction: submitAction, deleteDocument: deleteDocument, submitEntitlementCommand: submitEntitlementCommand, saveAttachment: saveAttachment, searchPages: searchPages, loadLanding: loadLanding, invalidateSearch: clearSearchReads, info: function () { return { mode: mode, authoringMode: nativeSession ? 'confluence-session' : 'service', rootPageId: pageId, searchSpaceKey: verifiedSearchSpace, attachmentPageId: attachmentPageId, attachmentFilename: filename, workflowConfigured: nativeSession || !!workflowURL, workspaceConfigured: nativeSession || !!workspaceURL, entitlementsConfigured: policyConfigured, entitlementsPageId: entitlementPageId, entitlementsSource: entitlementSource, entitlementsFilename: entitlementFilename, entitlementServiceConfigured: nativeSession || !!entitlementURL, metricsConfigured: mode === 'confluence' && (nativeSession || !!metricsURL), directAttachmentWrites: config.allowAttachmentWrites === true, nativePublicationEnabled: publicationEnabled }; } });
+    return Object.freeze({ load: load, loadAccess: loadAccess, inspectEntitlementRecovery: inspectEntitlementRecovery, reconcileEntitlementAttachment: reconcileEntitlementAttachment, loadMetrics: loadMetrics, recordView: recordView, submitAction: submitAction, deleteDocument: deleteDocument, submitEntitlementCommand: submitEntitlementCommand, saveAttachment: saveAttachment, searchPages: searchPages, loadLanding: loadLanding, loadPublishedArticle: loadPublishedArticle, invalidateSearch: clearSearchReads, info: function () { return { mode: mode, authoringMode: nativeSession ? 'confluence-session' : 'service', rootPageId: pageId, searchSpaceKey: verifiedSearchSpace, attachmentPageId: attachmentPageId, attachmentFilename: filename, workflowConfigured: nativeSession || !!workflowURL, workspaceConfigured: nativeSession || !!workspaceURL, entitlementsConfigured: policyConfigured, entitlementsPageId: entitlementPageId, entitlementsSource: entitlementSource, entitlementsFilename: entitlementFilename, entitlementServiceConfigured: nativeSession || !!entitlementURL, metricsConfigured: mode === 'confluence' && (nativeSession || !!metricsURL), directAttachmentWrites: config.allowAttachmentWrites === true, nativePublicationEnabled: publicationEnabled }; } });
   }
   return Object.freeze({ create: create, validateData: validateData, addCategory: addCategory, facetLabel: facetLabel });
 });
@@ -9404,5 +9464,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['home'] = { version: '5da43ad3dc81' };
+  modules['home'] = { version: '631868d07867' };
 })();

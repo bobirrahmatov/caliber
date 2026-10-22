@@ -104,13 +104,13 @@ Replace the runtime attachments from this package, the matching page HTML fragme
 - The unfiltered Insights listing now reads native child pages, nine native rows per request, without waiting for CQL indexing or downloading article bodies/Working JSON. Load more advances past untyped rows. Cards sort the loaded batch by modification date; this is not a global newest-first ordering of unread native pages. If a server rejects the child endpoint with 404/405/5xx, one space-and-Insights-scoped CQL read is used. Text/type/topic searches still depend on the Confluence search index. Empty lists are not retained in the application search cache.
 - Direct Insights publications no longer receive missing-classification, missing-approval or missing-review-date alerts. Explicit review dates, owner checks, resources and recorded maintenance issues remain meaningful. Job aid checks are unchanged.
 - Optional health-operation lookup uses the native property collection, where an absent journal is an empty result. The helpfulness reader deliberately fetches only your own vote and the view counter: a native `No content property found with key` 404 means no vote/counter yet and is handled as an empty initial state. It is not a missing attachment or a failed save; no starter JSON should be uploaded to that property URL. Keeping targeted reads avoids scanning every reader’s votes on article load. Permission/server failures still remain errors.
-- The shared article helper calls the documented **citiStyleAdd / citiStyleRemove** functions with separate flag strings. Existing marked articles get the fix without editing every article. Keep the native `wcs-page-style-v1` Anchor in article content and load the helper once via navBar; never put that marker in navBar itself.
+- The shared article helper reads native styling labels and legacy markers, then sets a scoped CSS attribute. It does not call host-theme functions or change host-theme classes. Keep the helper loaded once via navBar; never put an article marker in navBar itself.
 
 Verification on the internal site: publish one Blog, open All Insights, then its native reader page. Confirm the page is beneath Insights, the intended chrome flags apply, and it has no Job aid approval badges. Submit a first helpfulness vote, then reload and confirm it remains selected. Local tests do not verify your internal server or host theme implementation.
 
 ## Native Insights article template and discovery — 22 October update
 
-The native publication template now contains an **HTML macro** with a fixed script calling `citiStyleAdd("hide-title", "hide-comments", "hide-actions", "hide-footer")`. It retries briefly if the existing theme API is still initializing. It never interpolates author content into JavaScript, adds no network calls, and skips editing, preview and app pages. The shared navBar helper remains useful when the host theme initializes later.
+New publication templates use native styling labels and a compatibility anchor, with no executable styling macro. The shared navBar helper applies the packaged CSS only to opted-in native article views, excluding editors, previews and application pages.
 
 Published Insights use a reader layout with one content title, byline, summary, cover and article body. The administrative Page Properties table remains stored with `hidden=true`; it no longer dominates the reader page. Native code, images and attachment macros remain native content. The article's Insights link returns to the configured parent, **3961735728**. This is a presentation change, not a permission change.
 
@@ -125,6 +125,52 @@ Delete confirmation now shows the document key above the blank confirmation fiel
 This installation keeps functional loading indicators animated even when Horizon reports `prefers-reduced-motion: reduce`: action buttons, the Add document loading ring, search, export and the landing indeterminate progress bar. Decorative animation and smooth scrolling still respect reduced motion. The change uses CSS only, with no animation timers, new widget or new stylesheet. No loading overlay is added to non-landing pages.
 
 For this fix alone, replace **attachments/wcspedia-style.css** on attachment page **3962195316**, retaining its filename, then hard-refresh Chrome. The existing navBar already links this file once. If you pasted WCSpedia CSS into Look and Feel instead, replace that existing WCSpedia CSS block with the updated file; do not append another copy. The full ZIP also includes the preceding Insights/article-template updates; use its matching HTML and scripts when installing those together.
+
+### Native styling labels and the shared article reader (2026-10-22)
+
+Publication now adds the native labels `hide-title`, `hide-comments`, `hide-actions`,
+`hide-footer`, and `wcs-reader`, alongside the existing discovery labels. Keep
+`wcspedia-page-style-flags.js` loaded once from navBar and use the packaged shared
+CSS. The helper recognizes the four exact labels in the native page labels area;
+labels are not CSS by themselves. Application pages and native editors are excluded.
+No new global style block or additional header widget is needed.
+
+Published articles store a public reader snapshot inside their native HTML macro,
+in the same page-body revision as the rendered article. It contains only that
+published version and public author details, not Working page mappings, drafts,
+review evidence or audit history. Published media URLs point at the published
+page's copies. Search and Insights link directly to the landing application's
+`#/published/<native-page-id>` reader, which uses the same article component as
+My Workspace. Native article URLs remain available and gain a **Read article in
+WCSpedia** link. This link does not reload or modify private workflow state.
+
+Upload all replacement attachments from this package to **3962195316**, update
+page macros with their matching packaged HTML, and refresh the shared navBar
+include with `html/wcspedia-navbar.html` as instructed above. Preserve your live
+JSON. Existing articles retain their previously saved native bodies: open them
+through My Workspace and explicitly edit/republish once to receive the labels,
+reader snapshot and reader links. Job aids continue to require approval. Updating
+JavaScript attachments alone does not rewrite existing Confluence pages.
+
+The reader checks native page access, space, ancestors, destination and snapshot
+identity. It never loads a Working document to display a public article, and does
+not fetch individual article bodies while listing search results. These changes
+are locally tested; internal Confluence behavior still needs a signed-in smoke test.
+
+### Fluid article alignment and removal of host styling calls
+
+The Article body now fills the same responsive main column as Content health,
+Version history and Audit trail. The cover and existing responsive sidebar stay
+in their current layout. Upload the replacement shared CSS to fix existing reader
+views; no article republish is needed for this alignment change.
+
+Replace the shared page-style-flags attachment and page bundles with this package.
+New templates and the optional marker snippet contain no executable styling code.
+For an older native article containing the previous inline styling macro, remove
+that old styling HTML macro in the native editor, or republish through WCSpedia
+(normal approval still applies to Job aids). Uploading scripts cannot remove code
+already saved inside a Confluence page. Keep the four native styling labels and
+preserve article content, its inert reader-data macro, and live JSON.
 
 ## Configured page IDs
 

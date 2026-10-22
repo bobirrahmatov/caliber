@@ -20,7 +20,7 @@
   }
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['saved']?.version !== '5da43ad3dc81') {
+  if (!window.WCSPageModules || window.WCSPageModules['saved']?.version !== '631868d07867') {
     failPage('Load wcspedia-saved-items.js before wcspedia-saved-itemsHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }
@@ -38,7 +38,7 @@
   let adapter, session;
   function isNativeDiscoveryRoute(){
     const [path,query='']=window.WCSNavigation.routeHash(config,location.hash).slice(1).split('?'),view=new URLSearchParams(query).get('view');
-    return path==='/'||path==='/insights'||path==='/search'||path==='/saved'&&config.authoringMode==='confluence-session'||path.startsWith('/topic/')||path==='/results'&&(!view||view==='published');
+    return path.startsWith('/published/')||path==='/'||path==='/insights'||path==='/search'||path==='/saved'&&config.authoringMode==='confluence-session'||path.startsWith('/topic/')||path==='/results'&&(!view||view==='published');
   }
   function requestedWorkspaceScope(){
     const [path,query='']=window.WCSNavigation.routeHash(config,location.hash).slice(1).split('?'),view=new URLSearchParams(query).get('view');
@@ -75,7 +75,7 @@
   if(session.actor&&!data.people.some(p=>p.id===session.actorId)) data.people.push(session.actor);
   const canWrite=()=>!live||session.canSubmit;
   const canCreate=()=>canWrite()&&permitted('content.create');
-  const actionsFor=doc=>canWrite()?workflow.allowedActions(doc,actorId,data.people,permissionContext(doc)).filter(action=>!window.WCSEditorContent.isInsightType(doc.type)||['edit','revise','delete'].includes(action)):[];
+  const actionsFor=doc=>!doc.publicReader&&canWrite()?workflow.allowedActions(doc,actorId,data.people,permissionContext(doc)).filter(action=>!window.WCSEditorContent.isInsightType(doc.type)||['edit','revise','delete'].includes(action)):[];
   const baseData = clone(data);
   let library=null,libraryStarted=false, exportView=null, editor=null, editorHash='', editorSequence=0, suggestionWidget=null, suggestionInbox=null, chartView=null, chartSummary=null;
   let suggestionTimer=null, suggestionController=null, suggestionSequence=0, childSearchController=null, childSearchSequence=0;
@@ -87,6 +87,27 @@
   const nativeLandingMarkup=new WeakMap();
   let nativePrefetch=null,nativePrefetchTimer=null;
   let fullSessionLoading=null,fullSessionError=null,fullSessionErrorScope=null;
+  let publishedRead=null;
+  function preparePublishedReader() {
+    const match=route().path.match(/^\/published\/([1-9]\d{0,19})$/);
+    if(!live||!match){publishedRead?.controller?.abort();publishedRead=null;return true;}
+    const id=match[1];
+    if(publishedRead?.id===id&&publishedRead.status==='ready')return true;
+    if(publishedRead?.id!==id){
+      publishedRead?.controller?.abort();
+      const state={id,status:'loading',controller:new AbortController()};publishedRead=state;
+      adapter.loadPublishedArticle(id,{signal:state.controller.signal}).then(result=>{
+        if(publishedRead!==state||state.controller.signal.aborted)return;
+        documents=documents.filter(doc=>!doc.publicReader&&doc.id!==result.document.id).concat(result.document);
+        for(const person of result.people)if(!data.people.some(p=>p.id===person.id))data.people.push(person);
+        session.nativePermissions=session.nativePermissions||{};session.nativePermissions.documents=session.nativePermissions.documents||{};session.nativePermissions.documents[result.document.id]=[{operation:'read',targetType:'page'}];
+        state.status='ready';render();
+      }).catch(error=>{if(publishedRead!==state||state.controller.signal.aborted)return;state.status='error';state.error=error;render();});
+    }
+    const state=publishedRead;
+    root.innerHTML='<div class="discovery-container"><section class="page-panel" role="status">'+(state.status==='error'?'<h1>Article unavailable</h1><p>'+esc(state.error.message)+'</p><button class="button secondary" data-action="retry-published-reader">Try again</button> <a class="button secondary" href="'+esc((config.contextPath||'/confluence')+'/pages/viewpage.action?pageId='+id+'&wcsNativeUi=1')+'">View native page</a>':'<p><span class="wcs-button-spinner" aria-hidden="true"></span> Loading article…</p>')+'</section></div>';
+    return false;
+  }
   const STORE = 'wcspedia.governed.v4', ACTOR = STORE + '.actor';
   const VIEW_STORE='wcspedia.views.v1',nativeMetricsMode=live&&config.authoringMode==='confluence-session';
   const nativeViewRequested=new Set(),nativeViewLoading=new Set(),nativeViewFailures=new Set();
@@ -152,7 +173,7 @@
   const badge = status => '<span class="badge '+slug(status)+'">'+esc(status)+'</span>';
   function route() { const raw = window.WCSNavigation.routeHash(config,location.hash).slice(1), [path,query=''] = raw.split('?'); return {path,params:new URLSearchParams(query)}; }
   function url(path, values={}) { const p = new URLSearchParams(); Object.keys(values).forEach(k=>{if(values[k]!=='' && values[k]!=null)p.set(k,values[k]);}); const safePath=path.split('/').map(segment=>{try{return encodeURIComponent(decodeURIComponent(segment));}catch(_){return encodeURIComponent(segment);}}).join('/');return '#'+safePath+(p.size?'?'+p:''); }
-  const docUrl = (id,tab='content',version) => url('/document/'+encodeURIComponent(id),{tab,version});
+  const docUrl = (id,tab='content',version) => { const doc=documents.find(d=>d.id===id); const reader=doc?.publicReader||(doc?.publishedReader&&tab==='content'&&(!version||Number(version)===doc.publishedVersion)); return url(reader?'/published/'+doc.publishedConfluencePageId:'/document/'+encodeURIComponent(id),{tab,version}); };
   function destination(href){return memoryOnly?href:window.WCSNavigation.resolve(href,config,location.href);}
   function go(href) { if(modal?.saving||modal?.reloadRequired)return;const target=destination(href);if(editor&&(editor.isDirty()||editor.isBusy())){editor.requestLeave(target);return;}if(target.startsWith('#')){if(location.hash===target)render();else location.hash=target;}else location.assign(target); }
   document.addEventListener('wcspedia:navigate',event=>{
@@ -164,7 +185,7 @@
     }catch(_){/* Only a valid same-origin header destination participates. */}
   });
   function wirePageLinks(scope=root){scope.querySelectorAll('a[href^="#/"]').forEach(a=>a.setAttribute('href',destination(a.getAttribute('href'))));}
-  function canManage(doc) { return !doc.deletedAt&&(!live||session.workspaceLoaded) && (permitted('content.edit',doc)||permitted('content.delete',doc)||[doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId].includes(actorId)); }
+  function canManage(doc) { return !doc.publicReader&&!doc.deletedAt&&(!live||session.workspaceLoaded) && (permitted('content.edit',doc)||permitted('content.delete',doc)||[doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId].includes(actorId)); }
   function demoBar() { if(live)return '<div class="connection-bar"><span>'+icon('shield')+' Confluence knowledge library</span><span>'+esc(actor().name)+(canWrite()?'':' · Read only')+'</span></div>';return '<div class="demo-bar"><span class="demo-caption" title="'+esc(data.sampleNotice)+'"><i></i>Interactive prototype · sample people & documents <button class="demo-reset" data-action="reset" title="Restore the sample data and discard local demo changes">Reset demo</button></span><label class="role-switch"><span>Viewing as</span><select id="demo-actor" aria-label="Demo persona">'+data.people.map(p=>'<option value="'+esc(p.id)+'" '+(p.id===actorId?'selected':'')+'>'+esc(p.name)+(p.role==='Reader'?'':' · '+p.role)+'</option>').join('')+'</select></label></div>'; }
   function shell(content) { return '<div class="shell discovery-shell" role="region" aria-label="WCSpedia page content">'+(route().path==='/'||live&&config.showConnectionStatus===false?'':demoBar())+content+'</div><div id="modal-mount"></div>'; }
   function publishedDocs() { return documents.filter(d=>workflow.publishedVersion(d)); }
@@ -693,7 +714,7 @@
     }
   }
   function selectedDocument() {
-    const r=route(), id=decodeSegment(r.path.split('/')[2]||''), doc=documents.find(d=>d.id===id&&!d.deletedAt); if(!doc)return {};
+    const r=route(), id=decodeSegment(r.path.split('/')[2]||''), doc=documents.find(d=>(r.path.startsWith('/published/')?d.publicReader&&d.publishedConfluencePageId===id:d.id===id)&&!d.deletedAt); if(!doc)return {};
     const managed=canManage(doc), versions=doc.versions.filter(v=>managed||v.status==='Published');
     const v=versions.find(v=>v.version===Number(r.params.get('version'))) || (r.path.startsWith('/review/')&&managed?workflow.currentVersion(doc):null) || workflow.publishedVersion(doc) || (managed?workflow.currentVersion(doc):null);
     let tab=r.params.get('tab')||'content'; if(!['content','approval','versions','audit','health'].includes(tab)||(!managed&&['approval','audit'].includes(tab))||(tab==='approval'&&window.WCSEditorContent.isInsightType(doc.type)))tab='content';
@@ -867,6 +888,7 @@
     // native query parameters and meaningful fragment filters/subroutes.
     const canonical=window.WCSNavigation.canonicalUrl(config,location.href);
     if(canonical!==location.href)history.replaceState(history.state,'',canonical);
+    if(!preparePublishedReader())return;
     if(needsWorkspaceSession()){
       if(fullSessionErrorScope!==requestedWorkspaceScope())fullSessionError=null;
       window.WCSUI.destroy(root);
@@ -881,7 +903,7 @@
     else if(r.path==='/insights')content=insightsPage();
     else if(r.path==='/saved'||r.path==='/health')content=library.workspace(r.path.slice(1),r.params);
     else if(r.path==='/entitlements')content=window.WCSEntitlementsPage.markup(entitlementOptions());
-    else if(r.path.startsWith('/document/')||r.path.startsWith('/article/'))content=documentPage();
+    else if(r.path.startsWith('/document/')||r.path.startsWith('/article/')||r.path.startsWith('/published/'))content=documentPage();
     else if(r.path==='/results'&&r.params.get('view')==='review')content=reviewQueue();
     else if(r.path==='/results'||r.path.startsWith('/topic/'))content=resultsPage();
     else if(r.path==='/review')content=reviewQueue();
@@ -968,8 +990,8 @@
       if(modal?.saving||modal?.reloadRequired){event.preventDefault();return;}
     }
     const button=event.target.closest('[data-action]');
-    if(button){const action=button.dataset.action;if(action==='copy-document-key'){return window.WCSUI.runButton(button,async()=>{const key=document.getElementById('delete-document-key');if(!key)return;try{if(!navigator.clipboard?.writeText)throw Error('Clipboard unavailable');await navigator.clipboard.writeText(key.textContent);toast('Document key copied.');}catch(_){const range=document.createRange();range.selectNodeContents(key);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);toast('Document key selected. Use Copy to copy it.');}});}if(action==='toggle-faq'){const expanded=button.getAttribute('aria-expanded')!=='true';button.setAttribute('aria-expanded',String(expanded));const answer=document.getElementById(button.getAttribute('aria-controls'));answer.setAttribute('aria-hidden',String(!expanded));answer.inert=!expanded;return;}if(action==='retry-workspace-session'){fullSessionError=null;render();return;}if(action==='back-top'){scrollPageTop(matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth');root.querySelector('h1')?.setAttribute('tabindex','-1');root.querySelector('h1')?.focus({preventScroll:true});return;}if(action==='copy-markdown'){return window.WCSUI.runButton(button,async()=>{const {v,doc}=selectedDocument();if(v)await copyMarkdown(v,doc);});}if(action==='retry-native-search')return loadNativeResults();if(action==='retry-native-landing')return loadNativeLanding(true);if(action==='reload-live'){if(button.disabled)return;window.WCSUI.buttonBusy(button,true);showLoading('Refreshing your workspace…');try{session=await loading.wait(adapter.load());loading.progress(1,2,'Preparing your workspace…');refreshSession(session);modal.saving=false;modal.reloadRequired=false;workflowDialog?.setBusy(false);closeModal();render();loading.progress(2,2,'Your workspace is ready.');loadViewCounts();toast('Workspace refreshed.');}catch(error){toast(error.message,{type:'error'});}finally{loading.hide();window.WCSUI.buttonBusy(button,false);}return;}if(action==='close')return closeModal();if(action==='editor-reload'){editor?.destroy();editor=null;location.reload();return;}if(action==='reset'&&!live){return window.WCSUI.runButton(button,async()=>{if(editor?.isDirty()){toast('Save or cancel your draft before resetting the demo.',{type:'warning'});return;}data=clone(baseData);types=data.types;documents=clone(data.documents);localPolicy=clone(data.entitlementPolicy);try{localStorage.removeItem(STORE+'.entitlements');localStorage.removeItem('wcspedia.bookmarks.v1');localStorage.removeItem(window.WCSHealthService.STORE);clearTimeout(viewTimer);viewVisit=null;viewGeneration++;viewLoadSequence++;viewCounts=Object.create(null);viewStatus='loading';await localViews?.reset();loadViewCounts();}catch(_){viewStatus='unavailable';}memoryOnly=false;persist();actorId='alex';try{localStorage.setItem(ACTOR,actorId);}catch(_){}history.replaceState(null,'',window.WCSNavigation.initialHash(config));await library?.load(true);render();toast('Sample documents restored.');});}
-      if(action==='filters'){const filters=root.querySelector('#discovery-filters');filters.classList.toggle('is-open');button.setAttribute('aria-expanded',filters.classList.contains('is-open'));return;}if(action==='copy'){return window.WCSUI.runButton(button,async()=>{try{const selected=selectedDocument();await navigator.clipboard.writeText(location.href.split('#')[0]+docUrl(selected.doc.id,selected.tab,selected.v.version));toast('Document link copied.');}catch(_){toast('Clipboard unavailable. Copy the document URL from the address bar.',{type:'warning'});}});}
+    if(button){const action=button.dataset.action;if(action==='copy-document-key'){return window.WCSUI.runButton(button,async()=>{const key=document.getElementById('delete-document-key');if(!key)return;try{if(!navigator.clipboard?.writeText)throw Error('Clipboard unavailable');await navigator.clipboard.writeText(key.textContent);toast('Document key copied.');}catch(_){const range=document.createRange();range.selectNodeContents(key);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);toast('Document key selected. Use Copy to copy it.');}});}if(action==='toggle-faq'){const expanded=button.getAttribute('aria-expanded')!=='true';button.setAttribute('aria-expanded',String(expanded));const answer=document.getElementById(button.getAttribute('aria-controls'));answer.setAttribute('aria-hidden',String(!expanded));answer.inert=!expanded;return;}if(action==='retry-published-reader'){publishedRead=null;render();return;}if(action==='retry-workspace-session'){fullSessionError=null;render();return;}if(action==='back-top'){scrollPageTop(matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth');root.querySelector('h1')?.setAttribute('tabindex','-1');root.querySelector('h1')?.focus({preventScroll:true});return;}if(action==='copy-markdown'){return window.WCSUI.runButton(button,async()=>{const {v,doc}=selectedDocument();if(v)await copyMarkdown(v,doc);});}if(action==='retry-native-search')return loadNativeResults();if(action==='retry-native-landing')return loadNativeLanding(true);if(action==='reload-live'){if(button.disabled)return;window.WCSUI.buttonBusy(button,true);showLoading('Refreshing your workspace…');try{session=await loading.wait(adapter.load());loading.progress(1,2,'Preparing your workspace…');refreshSession(session);modal.saving=false;modal.reloadRequired=false;workflowDialog?.setBusy(false);closeModal();render();loading.progress(2,2,'Your workspace is ready.');loadViewCounts();toast('Workspace refreshed.');}catch(error){toast(error.message,{type:'error'});}finally{loading.hide();window.WCSUI.buttonBusy(button,false);}return;}if(action==='close')return closeModal();if(action==='editor-reload'){editor?.destroy();editor=null;location.reload();return;}if(action==='reset'&&!live){return window.WCSUI.runButton(button,async()=>{if(editor?.isDirty()){toast('Save or cancel your draft before resetting the demo.',{type:'warning'});return;}data=clone(baseData);types=data.types;documents=clone(data.documents);localPolicy=clone(data.entitlementPolicy);try{localStorage.removeItem(STORE+'.entitlements');localStorage.removeItem('wcspedia.bookmarks.v1');localStorage.removeItem(window.WCSHealthService.STORE);clearTimeout(viewTimer);viewVisit=null;viewGeneration++;viewLoadSequence++;viewCounts=Object.create(null);viewStatus='loading';await localViews?.reset();loadViewCounts();}catch(_){viewStatus='unavailable';}memoryOnly=false;persist();actorId='alex';try{localStorage.setItem(ACTOR,actorId);}catch(_){}history.replaceState(null,'',window.WCSNavigation.initialHash(config));await library?.load(true);render();toast('Sample documents restored.');});}
+      if(action==='filters'){const filters=root.querySelector('#discovery-filters');filters.classList.toggle('is-open');button.setAttribute('aria-expanded',filters.classList.contains('is-open'));return;}if(action==='copy'){return window.WCSUI.runButton(button,async()=>{try{const selected=selectedDocument();await navigator.clipboard.writeText(new URL(destination(docUrl(selected.doc.id,selected.tab,selected.v.version)),location.href).href);toast('Document link copied.');}catch(_){toast('Clipboard unavailable. Copy the document URL from the address bar.',{type:'warning'});}});}
 
       openModal(action,button.dataset.documentId);return;
     }
@@ -1041,9 +1063,10 @@
   document.addEventListener('visibilitychange',()=>{scheduleDocumentView();resumeVisibleReads();});
   window.addEventListener('focus',()=>resumeVisibleReads());
   window.addEventListener('online',()=>resumeVisibleReads());
-  window.addEventListener('pagehide',()=>{clearTimeout(viewTimer);viewVisit=null;dismissSuggestions();cancelChildSearch();stopInsights();clearNativeBrowse();cancelFullSession();});
+  window.addEventListener('pagehide',()=>{publishedRead?.controller?.abort();publishedRead=null;clearTimeout(viewTimer);viewVisit=null;dismissSuggestions();cancelChildSearch();stopInsights();clearNativeBrowse();cancelFullSession();});
   window.addEventListener('pageshow',event=>{
     if(!event.persisted||!live)return;
+    if(!preparePublishedReader())return;
     if(needsWorkspaceSession()){render();return;}
     // pagehide cancels requests, including ones whose loading state is restored
     // by the browser's back/forward cache. Resume both discovery surfaces.
@@ -1065,7 +1088,7 @@
   }});
   const libraryLoading=loadLibrary(true);
   if(live)render();
-  const nativeDiscoveryReady=live&&!!root.querySelector('#native-search-results,#native-landing-documents,#wcs-insights-content');
+  const nativeDiscoveryReady=live&&(route().path.startsWith('/published/')||!!root.querySelector('#native-search-results,#native-landing-documents,#wcs-insights-content'));
   if(nativeDiscoveryReady){
     // The authorized page and CQL search are ready to use. Saved items and
     // health checks have their own states and must not keep discovery inert.
