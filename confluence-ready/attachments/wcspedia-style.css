@@ -431,7 +431,6 @@
 #wcspedia .wcs-search-spinner[hidden] { display:none!important; }
 #wcspedia .wcs-search-progress { padding:12px!important; color:#526780!important; font:inherit!important; }
 @keyframes wcs-search-spin { to { transform:rotate(360deg); } }
-@media(prefers-reduced-motion:reduce) { #wcspedia .wcs-search-spinner { animation:none!important; } }
 
 /* Keep the reviewer queue close to its compact page heading. */
 #wcspedia .reviewer-workspace .press-heading { padding:24px 0!important; }
@@ -606,7 +605,10 @@
 #wcspedia .wcs-ui-calendar-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--line);padding-top:12px;margin-top:10px}#wcspedia .wcs-ui-calendar-actions button,#wcspedia .wcs-ui-calendar-actions span{font-size:11px}#wcspedia .wcs-ui-calendar-actions span{color:var(--muted)}
 #wcspedia [data-tooltip]{position:relative}#wcspedia [data-tooltip]:hover:after,#wcspedia [data-tooltip]:focus-visible:after{content:attr(data-tooltip);position:absolute;left:50%;top:calc(100% + 9px);transform:translateX(-50%);z-index:calc(var(--wcs-overlay-z-index,4000) + 50);width:max-content;max-width:230px;padding:7px 10px;background:var(--navy);color:#fff;border-radius:5px;box-shadow:0 5px 15px #17355f22;white-space:normal;text-align:center;font-size:11px;font-weight:400;line-height:1.4;pointer-events:none}
 @media(max-width:600px){#wcspedia .wcs-ui-backdrop{padding:12px;align-items:center}#wcspedia .wcs-ui-dialog{max-height:calc(100dvh - 24px);border-radius:12px}#wcspedia .wcs-ui-dialog-heading{padding:20px 18px 16px}#wcspedia .wcs-ui-dialog-heading h2{font-size:22px}#wcspedia .wcs-ui-dialog-body{padding:19px 18px 22px}#wcspedia .wcs-ui-dialog .modal-actions{flex-wrap:wrap}#wcspedia .wcs-ui-dialog .modal-actions .button{flex:1}#wcspedia .role-switch .wcs-ui-select{width:165px}}
-/* One actual pending action, one spinner. Disabled permission controls never
+/* Horizon installation: loading feedback intentionally remains animated even
+   when the remote desktop reports reduced motion. Decorative motion still
+   respects that preference. No timers or page-wide motion override.
+   One actual pending action, one spinner. Disabled permission controls never
    acquire a spinner. Scope overrides to WCSpedia, not Confluence's buttons. */
 :is(#wcspedia,.wcs-add-document,.wcs-article-discussion,.wcs-article-engagement,[data-wcs-article-discussion-host]) button[aria-busy="true"] {
   cursor: progress !important;
@@ -626,15 +628,11 @@
   animation: wcs-button-spin .7s linear infinite !important;
 }
 @keyframes wcs-button-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  :is(#wcspedia,.wcs-add-document,.wcs-article-discussion,.wcs-article-engagement,[data-wcs-article-discussion-host]) button[aria-busy="true"]:not([data-wcs-busy-indicator])::after { animation: none !important; }
-}
 
 /* A real element avoids collisions with Confluence tooltip/tab pseudo-elements. */
 :is(#wcspedia,.wcs-add-document,.wcs-article-discussion,.wcs-article-engagement,[data-wcs-article-discussion-host]) button > .wcs-button-spinner {
   display:inline-block!important;position:static!important;flex:0 0 16px!important;width:16px!important;height:16px!important;min-width:16px!important;margin:0 0 0 8px!important;padding:0!important;box-sizing:border-box!important;border:2px solid currentColor!important;border-right-color:transparent!important;border-radius:50%!important;background:transparent!important;opacity:1!important;vertical-align:middle!important;pointer-events:none!important;animation:wcs-button-spin .7s linear infinite!important;
 }
-@media(prefers-reduced-motion:reduce){:is(#wcspedia,.wcs-add-document,.wcs-article-discussion,.wcs-article-engagement,[data-wcs-article-discussion-host]) button > .wcs-button-spinner{animation:none!important}}
 :is(#wcspedia,.wcs-add-document,.wcs-article-discussion,.wcs-article-engagement,[data-wcs-article-discussion-host]) button[aria-busy="true"]{opacity:1!important}
 #wcspedia button.button[aria-busy="true"]:not(.secondary):not(.danger){background:var(--blue,#255be3)!important;color:#fff!important;border-color:var(--blue,#255be3)!important}
 
@@ -1003,7 +1001,7 @@
 .wcs-add-document-popover .wcs-add-document-option-description { grid-column:2!important; font-size:11px!important; font-weight:400!important; color:#65748a!important; line-height:1.5!important; }
 @keyframes wcs-add-menu-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
 @media(max-width:480px) { [data-wcs-floating-add] { right:max(12px,env(safe-area-inset-right))!important; bottom:calc(max(16px,env(safe-area-inset-bottom)) + 72px)!important; } }
-@media(prefers-reduced-motion:reduce) { .wcs-add-document *,.wcs-add-document-popover,.wcs-add-document-popover * { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
+@media(prefers-reduced-motion:reduce) { .wcs-add-document :not(.wcs-button-spinner),.wcs-add-document-popover,.wcs-add-document-popover * { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
 .wcs-add-document .wcs-add-document-trigger:disabled,
 :is(#navHeader,#navBar,#header,[data-wcs-header-add-document],[data-wcs-add-document-host]) .wcs-add-document .wcs-add-document-trigger:disabled { background:#eef1f5!important; border-color:#d3dbe5!important; color:#6b778c!important; -webkit-text-fill-color:#6b778c!important; cursor:not-allowed!important; box-shadow:none!important; opacity:1!important; transform:none!important; }
 :is(#navHeader,#navBar,#header,[data-wcs-header-add-document],[data-wcs-add-document-host]) .wcs-add-document .wcs-add-document-trigger:disabled :is(span,svg) { color:#6b778c!important; -webkit-text-fill-color:#6b778c!important; }
@@ -1097,9 +1095,8 @@
 #wcspedia .wcs-export-menu strong{display:block;font-size:14px;font-weight:500}
 #wcspedia .wcs-export-menu small{display:block;font-size:12px;color:var(--muted);margin-top:5px}
 #wcspedia .wcs-export-progress{display:flex;align-items:center;gap:16px;min-height:90px;color:var(--muted);font-size:14px}
-#wcspedia .wcs-export-spinner{width:24px;height:24px;border:2px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:wcs-export-spin .8s linear infinite}
+#wcspedia .wcs-export-spinner{width:24px;height:24px;border:2px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:wcs-export-spin .8s linear infinite!important}
 @keyframes wcs-export-spin{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){#wcspedia .wcs-export-spinner{animation:none}}
 
 /* Content health shares the Citi controls and table surface used by workspaces. */
 #wcspedia .wcs-health{color:var(--navy,#17355f);max-width:100%;min-width:0}
@@ -1290,7 +1287,7 @@
 .wcs-loading-overlay .wcs-loading-message { min-height: 40px; margin: 0 0 20px; color: #61758c; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .wcs-loading-overlay .wcs-loading-track { height: 8px; overflow: hidden; border-radius: 999px; background: #e5eaf1; }
 .wcs-loading-overlay .wcs-loading-fill { height: 100%; width: var(--wcs-loading-progress); border-radius: inherit; background: #255be3; transition: width 180ms ease-out; }
-.wcs-loading-overlay.is-indeterminate .wcs-loading-fill { width: 40%; animation: wcs-loading-sweep 1.3s ease-in-out infinite; }
+.wcs-loading-overlay.is-indeterminate .wcs-loading-fill { width: 40%; animation: wcs-loading-sweep 1.3s ease-in-out infinite !important; }
 @keyframes wcs-loading-sweep { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
 @media (max-width: 480px) {
   .wcs-loading-overlay { padding: 20px; }
@@ -1298,8 +1295,7 @@
 }
 @media (max-height: 450px) { .wcs-loading-overlay { align-items: flex-start; } }
 @media (prefers-reduced-motion: reduce) {
-  .wcs-loading-overlay .wcs-loading-fill { transition: none; animation: none; }
-  .wcs-loading-overlay.is-indeterminate .wcs-loading-fill { width: 100%; opacity: .55; animation: none; }
+  .wcs-loading-overlay .wcs-loading-fill { transition: none; }
 }
 @media (forced-colors: active) {
   .wcs-loading-overlay .wcs-loading-track { border: 1px solid CanvasText; }

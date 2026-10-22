@@ -9404,5 +9404,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['entitlements'] = { version: 'b78a9db3b80d' };
+  modules['entitlements'] = { version: '5da43ad3dc81' };
 })();

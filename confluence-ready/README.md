@@ -120,6 +120,12 @@ The landing page now has an **Insights (Blogs)** card below the business areas. 
 
 Delete confirmation now shows the document key above the blank confirmation field, with a Copy button and a selectable-text fallback. Copying never submits deletion or automatically fills the confirmation field.
 
+## Horizon Chrome loading indicators — 22 October
+
+This installation keeps functional loading indicators animated even when Horizon reports `prefers-reduced-motion: reduce`: action buttons, the Add document loading ring, search, export and the landing indeterminate progress bar. Decorative animation and smooth scrolling still respect reduced motion. The change uses CSS only, with no animation timers, new widget or new stylesheet. No loading overlay is added to non-landing pages.
+
+For this fix alone, replace **attachments/wcspedia-style.css** on attachment page **3962195316**, retaining its filename, then hard-refresh Chrome. The existing navBar already links this file once. If you pasted WCSpedia CSS into Look and Feel instead, replace that existing WCSpedia CSS block with the updated file; do not append another copy. The full ZIP also includes the preceding Insights/article-template updates; use its matching HTML and scripts when installing those together.
+
 ## Configured page IDs
 
 Space key: `wcspedia`. Context: `/confluence`. Attachment page: `3962195316`.
