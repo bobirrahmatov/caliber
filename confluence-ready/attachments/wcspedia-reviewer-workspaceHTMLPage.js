@@ -20,7 +20,7 @@
   }
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['review']?.version !== '6dcba5ff4bc0') {
+  if (!window.WCSPageModules || window.WCSPageModules['review']?.version !== '0ea73ca4749c') {
     failPage('Load wcspedia-reviewer-workspace.js before wcspedia-reviewer-workspaceHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }
@@ -384,7 +384,7 @@
     const topicFocused=host.contains(active)&&!!active.closest('.wcs-insights-topic-filter');
     insightsView?.destroy();window.WCSUI.destroy(host);
     const state=insightsState||{items:[],loading:live,error:'',next:null};
-    host.innerHTML=window.WCSInsights.render({documents:live?state.items:localInsights(),areas:data.areas,baseUrl:location.href,filter:insightsFilter(),types:typeUI.INSIGHT_CHOICES,prefiltered:live,limit:live?Math.max(9,state.items.length):insightsLimit,complete:!live||!state.next,hasMore:live&&!!state.next,loading:!!state.loading,error:state.error||''});
+    host.innerHTML=window.WCSInsights.render({documents:live?state.items:localInsights(),areas:data.areas,baseUrl:location.href,filter:insightsFilter(),types:typeUI.INSIGHT_CHOICES,prefiltered:live,limit:live?Math.max(9,state.items.length):insightsLimit,complete:!live||!state.next,hasMore:live&&!!state.next,loading:!!state.loading,appending:!!state.retryAppend,error:state.error||''});
     insightsView=window.WCSInsights.bind(host,{
       onFilter:filter=>{insightsLimit=9;go(url('/insights',{...filter,type:filter.type==='all'?'':filter.type}));},
       onMore:()=>{if(live)loadInsights(true);else{insightsLimit+=9;paintInsights();}},
@@ -584,7 +584,7 @@
     mount.setAttribute('aria-busy','true');
     mount.innerHTML='';count.textContent='Searching…';setSearchBusy(true);
     const searchButton=root.querySelector('form[data-search] button[type=submit]');
-    searchButton?.setAttribute('aria-busy','true');
+    searchButton?.setAttribute('data-wcs-search-pending','true');
     try {
       const raw=params.get('after');
       if(raw&&raw.length>16000)throw Error('This search page link is invalid. Start a new search.');
@@ -603,7 +603,7 @@
       const previousLabel=page>2&&!nativePageLinks.has(queryKey+'|'+(page-1))?'First page':'Previous page';
       const control=(href,label,kind,content)=>href?'<a class="wcs-page-control '+kind+'" href="'+esc(href)+'" aria-label="'+label+'">'+content+'</a>':'<span class="wcs-page-control '+kind+'" aria-disabled="true">'+content+'</span>';
       const paging='<div class="discovery-pagination"><span>'+(items.length?(first==null?items.length+' '+(items.length===1?'result':'results')+' on this page':'Showing '+(first+1)+'–'+(first+items.length)+(result.total!=null?' of '+result.total:'')):'No results on this page')+'</span><nav class="wcs-pagination" aria-label="Document pages">'+control(previous,previousLabel,'wcs-page-previous','<span aria-hidden="true">←</span><span class="wcs-page-direction">'+(previousLabel==='First page'?'First':'Previous')+'</span>')+'<ol class="wcs-page-numbers"><li><span class="wcs-page-control is-current" aria-current="page">'+page+'</span></li></ol>'+control(next,'Next page','wcs-page-next','<span class="wcs-page-direction">Next</span><span aria-hidden="true">→</span>')+'</nav></div>';
-      mount.innerHTML=(items.length?'<div class="press-card-list">'+items.map(item=>nativeResultCard(item,options.query)).join('')+'</div>':empty('No matching pages','Try another keyword or remove a filter. Only pages you can access are included.','Search all WCSpedia',url('/results')))+(items.length||previous?paging:'');
+      mount.innerHTML=(items.length?'<div class="press-card-list">'+items.map(item=>nativeResultCard(item,options.query)).join('')+'</div>':empty(next?'Continue searching':'No matching pages',next?'More pages are available. Use Next to continue searching.':'Try another keyword or remove a filter. Only pages you can access are included.','Search all WCSpedia',url('/results')))+(items.length||previous||next?paging:'');
       wirePageLinks(mount);
     }catch(error){
       if(current()&&!controller.signal.aborted){count.textContent='Search unavailable';mount.innerHTML='<div class="library-unavailable" role="alert"><strong>Unable to search Confluence</strong><p>'+esc(error.message)+'</p><button class="button secondary" data-action="retry-native-search">Try again</button><a class="button secondary" href="'+esc(url('/results',values))+'">Start from the first page</a></div>';wirePageLinks(mount);}
@@ -624,7 +624,11 @@
   }
   function setSearchBusy(busy) {
     const form=root.querySelector('form[data-search]'),spinner=form?.querySelector('[data-search-loading]');
+    // The field indicator also covers live suggestions. Do not add a second
+    // spinner to the submit button while the same search is pending.
     if(spinner)spinner.hidden=!busy;
+    const submit=form?.querySelector('button[type="submit"]');
+    if(submit){submit.removeAttribute('aria-busy');submit.setAttribute('data-wcs-search-pending',String(busy));}
     const status=root.querySelector('#suggestion-status');if(!busy&&status?.textContent==='Searching WCSpedia…')status.textContent='';
     if(form) { if(busy)form.setAttribute('aria-busy','true');else form.removeAttribute('aria-busy'); }
   }

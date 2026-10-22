@@ -198,6 +198,23 @@ when the new assets are loaded. Do not copy the Insights page HTML into articles
 Full interactive history/health/actions remain in the WCSpedia reader; the native
 page is a readable, styled publication using the same visual layout.
 
+
+### Sidebar: document/article readers only
+
+The sidebar is not installed in navBar. Its shared flag helper no longer bundles
+sidebar code. The page bundles enable navigation only while displaying a document
+reader; native articles include `wcspedia-reader-sidebar.js` in their published
+HTML macro automatically. Landing, business-area and Insights listings, My
+Workspace, Reviewer Workspace, Saved, Entitlements and editors do not enable it.
+The existing Confluence sidebar on other pages is left unchanged.
+
+Upload the new `attachments/wcspedia-reader-sidebar.js` along with the updated
+attachments. For an already published native article, add
+`html/wcspedia-reader-sidebar.html` once in an HTML macro inside that article, or
+let its next normal WCSpedia publication add it. Do not paste this snippet in
+navBar. Keep the existing shared CSS. Hard-refresh open tabs after updating the
+attachments. Existing live JSON and native article bodies are not bulk-replaced.
+
 ## Configured page IDs
 
 Space key: `wcspedia`. Context: `/confluence`. Attachment page: `3962195316`.

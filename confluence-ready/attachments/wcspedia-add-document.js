@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === '6dcba5ff4bc0') return;
+  if (registry.addDocument && registry.addDocument.version === '0ea73ca4749c') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -1865,8 +1865,13 @@ function renderStorage(document, selected, people = [], options = {}) {
   ['tags', 'processes', 'regions'].forEach(kind => { const values = content.validateTags(version[kind] || [], kind); if (values.length) rows.push([kind === 'tags' ? 'Topics' : kind === 'regions' ? 'Regions covered' : 'Processes', values.join(', ')]); });
   const article = options.hostStyleFlags === true && published;
   let out = '';
+  if (article && options.readerSidebarUrl) {
+    if (!/^\/(?:[A-Za-z0-9_-]+\/)*download\/attachments\/[1-9]\d{0,19}\/wcspedia-reader-sidebar\.js\?api=v2$/.test(options.readerSidebarUrl)) fail('Use the configured same-origin reader sidebar attachment.');
+    const loader = '<script defer src="' + options.readerSidebarUrl + '"></script>';
+    out += '<ac:structured-macro ac:name="html" ac:schema-version="1"><ac:plain-text-body>' + cdata(loader) + '</ac:plain-text-body></ac:structured-macro>';
+  }
   if (options.hostStyleFlags === true) {
-    out = '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-page-style-v1</ac:parameter></ac:structured-macro>';
+    out += '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-page-style-v1</ac:parameter></ac:structured-macro>';
     if (article) {
       if (options.insightsUrl != null && !/^\/(?:[A-Za-z0-9_-]+\/)*pages\/viewpage\.action\?pageId=[1-9]\d{0,19}$/.test(options.insightsUrl)) fail('Use a same-origin native Insights page link.');
       out += '<div class="wcs-native-article"><div class="wcs-native-article-heading"><p class="wcs-native-article-kicker">' + (directInsight ? (options.insightsUrl ? '<a href="' + xml(options.insightsUrl) + '">Insights</a>' : 'Insights') : xml(options.areaLabel || document.area)) + ' · ' + xml(document.type) + '</p>';
@@ -2235,7 +2240,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function bodyWrite(p,document,media,kind,requestId,expectedParent,signal){
       if(marked(p,'wcs-operation-'+requestId)){p.readerReady=marked(p,'wcs-reader-v1');return p;}
       var initial=markers(p).find(function(value){return /^wcs-created-[a-zA-Z0-9-]{16,100}$/.test(value);});
-      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
+      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,readerSidebarUrl:context+'/download/attachments/'+numeric(config.attachmentPageId||rootId)+'/wcspedia-reader-sidebar.js?api=v2',readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
       var suffix=' · WCS '+p.id;
       var title=kind==='published'?v.title.slice(0,250-suffix.length)+suffix:'WCSpedia working '+document.id;
       var response=await request('/rest/api/content/'+p.id,'PUT',{id:p.id,type:'page',title:title.slice(0,250),space:{key:space},ancestors:[{id:expectedParent}],version:{number:p.version.number+1,message:'WCSpedia '+kind+' '+v.status+' v'+v.version+' r'+v.revision+' · '+requestId},body:{storage:{representation:'storage',value:body}}},signal);
@@ -3762,6 +3767,35 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       doc.publishedConfluencePageId = String(id); doc.publishedConfluencePageVersion = page.version.number; doc.publicReader = true;
       return {document:doc,people:payload.people};
     }
+    function discoveryBody(item) {
+      var Parser = dependencies.DOMParser || root.DOMParser, storage = item.body?.storage?.value;
+      if (!Parser || !storage) return {};
+      var xml = new Parser().parseFromString('<root xmlns:ac="urn:ac" xmlns:ri="urn:ri">' + storage + '</root>', 'application/xml');
+      if (xml.querySelector('parsererror')) return {};
+      var fields = {}, textBody = '';
+      // Parse inert storage; never execute HTML macros or include their scripts
+      // in the excerpt. Use only the snapshot matching this native revision.
+      Array.from(xml.getElementsByTagNameNS('urn:ac','plain-text-body')).forEach(function (node) {
+        if (node.parentElement?.getAttributeNS('urn:ac','name') !== 'html') return;
+        var html = new Parser().parseFromString(node.textContent,'text/html');
+        var snapshot = html.querySelector('script#wcs-published-reader[type="application/json"]');
+        if (snapshot) try {
+          var data = JSON.parse(snapshot.textContent), v = data.document?.versions?.find(function (v) { return v.version === data.document.publishedVersion && v.status === 'Published'; });
+          if (data.format === 1 && data.pageId === String(item.id) && data.nativeVersion === item.version?.number && snapshot.getAttribute('data-wcs-reader-root') === pageId && v) {
+            fields.summary = plain(v.summary || ''); fields.cover = v.cover || null;
+            textBody += ' ' + String(v.bodyMarkdown || '') + ' ' + JSON.stringify(v.sections || []);
+          }
+        } catch (_) { /* Legacy pages can still provide a native text excerpt. */ }
+        html.querySelectorAll('script,style,nav,button').forEach(function (node) { node.remove(); });
+        textBody += ' ' + (html.querySelector('.wcs-native-article-body') || html.body).textContent;
+        node.remove();
+      });
+      textBody += ' ' + (xml.querySelector('.wcs-native-article-body') || xml.documentElement).textContent;
+      textBody = textBody.replace(/\s+/g,' ').trim();
+      fields.searchText = textBody;
+      if (!fields.summary) fields.summary = textBody.slice(0,220) + (textBody.length > 220 ? '…' : '');
+      return fields;
+    }
     async function insightChildren(options, search) {
       var parent = String(nativePublication.insightsPageId || ''), limit = options.limit || 9, start = options.start || 0;
       if (!/^[1-9]\d{0,19}$/.test(parent) || parent === pageId) fail('Configure the Insights parent page.', 'CONFIGURATION');
@@ -3774,7 +3808,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       search.buildCQL({types:options.types}, {rootPageId:pageId,spaceKey:configuredSearchSpace});
       var space = await waitForSearchSpace(options.signal);
       var url = endpoint('/rest/api/content/' + parent + '/child/page');
-      url.search = new URLSearchParams({limit:String(limit),start:String(start),expand:'space,ancestors,version,metadata.labels'}).toString();
+      url.search = new URLSearchParams({limit:String(limit),start:String(start),expand:'space,ancestors,version,metadata.labels,body.storage'}).toString();
       var payload = await json(await request(url, {signal:options.signal}));
       if (!object(payload) || !Array.isArray(payload.results) || payload.results.length > limit) fail('Confluence returned an invalid Insights page list.', 'INVALID_SCOPE');
       var excluded = searchExclusions(options), seen = new Set();
@@ -3785,8 +3819,17 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         var labels = item.metadata?.labels?.results;
         if (!Array.isArray(labels)) fail('Confluence did not return Insights article labels.', 'INVALID_SCOPE');
         var names = labels.map(function (label) { return label.name; }), type = names.map(search.typeFromLabel).find(Boolean);
-        if (!options.types.includes(type)) return null;
-        return {id:id,title:(names.includes('wcs-published') || names.includes('wcs-reader'))?plain(item.title).replace(new RegExp(' · WCS ' + id + '$'),''):plain(item.title),summary:'',type:type,category:'insights',status:'Published',tags:names.filter(function (name) {return typeof name === 'string' && name.startsWith('wcs-tag-');}).map(function (name) {return name.slice(8);}),updated:item.version?.when || null,version:item.version?.number || null,url:readerURL(id,names)};
+        if (options.types?.length && !options.types.includes(type)) return null;
+        var row = Object.assign({id:id,title:(names.includes('wcs-published') || names.includes('wcs-reader'))?plain(item.title).replace(new RegExp(' · WCS ' + id + '$'),''):plain(item.title),summary:'',type:type,category:'insights',status:'Published',tags:names.filter(function (name) {return typeof name === 'string' && name.startsWith('wcs-tag-');}).map(function (name) {return name.slice(8);}),updated:item.version?.when || null,version:item.version?.number || null,url:readerURL(id,names)}, discoveryBody(item));
+        var terms = String(options.query || '').normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+        var haystack = [row.title,row.summary,row.searchText,row.tags.join(' ')].join(' ').normalize('NFKC').toLowerCase();
+        if (!terms.every(function (term) { return haystack.includes(term); })) return null;
+        if (['tag','process','region'].some(function (key) { return options[key] && !names.includes(facetLabel(key,options[key])); })) return null;
+        if (options.year && String(row.updated || '').slice(0,4) !== String(options.year)) return null;
+        var days = {week:7,month:30,quarter:90}[options.updated];
+        if (days && !(Date.parse(row.updated) >= Date.now() - days * 86400000)) return null;
+        delete row.searchText;
+        return row;
       }).filter(Boolean);
       // Advance by native rows, including untyped pages. Never infer completion
       // from the filtered card count or follow an arbitrary server URL.
@@ -3800,6 +3843,18 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if (mode !== 'confluence') fail('Page search requires Confluence mode.', 'CONFIGURATION');
       var search = dependencies.search || root.WCSSearch;
       if (!search || typeof search.buildCQL !== 'function') fail('Load the WCSpedia search module before using CQL.', 'CONFIGURATION');
+      if (options.continuation?.transport === 'insights-recovery') {
+        var recovery = options.continuation;
+        if (options.scope !== 'tree' || options.area && options.area !== 'insights') fail('Restart the search in its original collection.', 'INVALID_CONTINUATION');
+        var key = JSON.stringify([options.query||'',options.type||'',options.types||[],options.area||'',options.tag||'',options.process||'',options.region||'',options.year||'',options.updated||'any',options.sort||'relevance']);
+        if (recovery.key !== key || Object.keys(recovery).some(function (k) { return !['transport','key','next'].includes(k); })) fail('Restart the search after changing filters.', 'INVALID_CONTINUATION');
+        var types = options.types || (options.type ? ((root.WCSEditorContent || (typeof require === 'function' ? require('./editor-content.js') : null))?.typeMembers(options.type) || [options.type]) : []);
+        search.buildCQL({query:options.query,types:types,updated:options.updated,sort:options.sort},{rootPageId:pageId,spaceKey:configuredSearchSpace});
+        var recovered = await insightChildren(Object.assign({},options,{types:types,continuation:recovery.next}),search);
+        if (recovered.nextContinuation) recovered.nextContinuation = {transport:'insights-recovery',key:key,next:recovered.nextContinuation};
+        recovered.start = null; recovered.nextStart = null;
+        return recovered;
+      }
       if (options.insights != null && typeof options.insights !== 'boolean' || options.nativeChildren != null && typeof options.nativeChildren !== 'boolean') fail('Invalid Insights search mode.');
       if (options.nativeChildren && (!options.insights || options.scope !== 'tree' || !Array.isArray(options.types) || options.query || options.tag || options.area || options.type)) fail('Native Insights browsing requires an unfiltered article list.');
       if (options.nativeChildren && (!options.continuation || options.continuation.transport === 'children')) {
@@ -3853,6 +3908,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       }
       var position = options.continuation == null ? { start: start } : continuationPosition(options.continuation, cql, limit);
       var expanded = tree ? (options.excerpt === false ? 'space,ancestors' : 'version,space,ancestors,metadata.labels') : 'version,space,ancestors';
+      if (options.insights) expanded += ',body.storage';
       if (scope.additionalSubtreePageId && expanded.indexOf('metadata.labels') < 0) expanded += ',metadata.labels';
       var contentTransport = options.continuation ? options.continuation.transport === 'content' : preferContentSearch;
       async function fetchResults(useContent) {
@@ -3958,6 +4014,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           normalized.type = typeof search.typeFromLabel === 'function' ? names.map(search.typeFromLabel).find(Boolean) || null : null;
           normalized.tags = names.filter(function (name) { return /^wcs-tag-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name); }).map(function (name) { return name.slice(8); });
           normalized.version = integer((item.version || {}).number) ? item.version.number : null;
+          if (options.insights) {
+            var card = discoveryBody(item);
+            if (card.summary) normalized.summary = card.summary;
+            if (card.cover) normalized.cover = card.cover;
+          }
         }
         return normalized;
       });
@@ -3967,6 +4028,18 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if (total == null && incomplete) total = indexedTotal;
       var nextContinuation = searchContinuation(response, results, cql, limit, position, total, contentTransport);
       if (nextContinuation && contentTransport) nextContinuation.transport = 'content';
+      // A new article is readable before the CQL index catches up. Recover an
+      // empty first page from the exact Insights parent, in bounded batches.
+      // Never consult private workspace JSON or broaden a business-area query.
+      if (tree && (!queryOptions.types.length || queryOptions.types.some(function (type) { return type !== 'Job aid'; })) && !results.length && !nextContinuation && !options.continuation && !start && !options.nativeChildren && nativePublication.insightsPageId && (!options.area || options.area === 'insights')) {
+        var recoveryOptions = Object.assign({},options,{types:queryOptions.types,continuation:null});
+        var recovered = await insightChildren(recoveryOptions,search);
+        var batches = 1;
+        while (!recovered.results.length && recovered.nextContinuation && batches++ < 4) recovered = await insightChildren(Object.assign({},recoveryOptions,{continuation:recovered.nextContinuation}),search);
+        if (recovered.nextContinuation) recovered.nextContinuation = {transport:'insights-recovery',key:JSON.stringify([options.query||'',options.type||'',options.types||[],options.area||'',options.tag||'',options.process||'',options.region||'',options.year||'',options.updated||'any',options.sort||'relevance']),next:recovered.nextContinuation};
+        recovered.cql = cql; recovered.start = null; recovered.nextStart = null;
+        return recovered;
+      }
       return { results: results, total: total, start: position.start == null ? null : position.start, limit: limit, nextStart: nextContinuation && nextContinuation.start != null ? nextContinuation.start : null, nextContinuation: nextContinuation, cql: cql };
     }
     async function loadLanding(options) {
@@ -4427,5 +4500,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: '6dcba5ff4bc0', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
+  registry.addDocument = { version: '0ea73ca4749c', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
 })();
