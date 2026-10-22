@@ -1,5 +1,6 @@
 /* Shared-header presentation helper. Uses the existing Citi theme's body classes.
- * No network requests, saved preferences, permission changes or host CSS overrides.
+ * No network requests, saved preferences or permission changes. Shared CSS
+ * supplies narrowly scoped native-chrome rules on marked article views.
  * Child documents opt in with the wcs-page-style-v1 native Anchor or an explicit
  * data-wcs-document-page/data-wcs-style-flags marker. App pages never opt in.
  */
@@ -7,7 +8,7 @@
   'use strict';
   if (window.WCSPageStyleFlags) return;
   var flags = ['hide-title', 'hide-actions', 'hide-comments', 'hide-footer'];
-  var selector = '[data-wcs-document-page][data-wcs-style-flags], span.confluence-anchor-link[id$="wcs-page-style-v1"], a.confluence-anchor-link[id$="wcs-page-style-v1"], a.confluence-anchor-link[name$="wcs-page-style-v1"]';
+  var selector = '[data-wcs-document-page][data-wcs-style-flags], span[id$="wcs-page-style-v1"], a[id$="wcs-page-style-v1"], a[name$="wcs-page-style-v1"]';
   var interfaceRoot = '#wcspedia';
   var excluded = 'pre, code, textarea, [contenteditable="true"], .mce-content-body, #editor, #content-editor, #macro-browser, .macro-preview, [data-wcs-style-flags-ignore]';
   var editor = '#editpageform, #wysiwygTextarea, #content-editor, body.contenteditor';
@@ -52,7 +53,7 @@
   }
 
   function release() {
-    if (document.body) Object.keys(owned).forEach(function (flag) { document.body.classList.remove('citi-' + flag); });
+    if (document.body) { Object.keys(owned).forEach(function (flag) { document.body.classList.remove('citi-' + flag); }); document.body.removeAttribute('data-wcs-active-style-flags'); }
     owned = Object.create(null);
     markers = [];
   }
@@ -74,7 +75,7 @@
       var changed = markers.some(function (marker) { return !marker.isConnected; });
       if (!changed) changed = changes.some(function (change) {
         if (change.type === 'attributes') {
-          if (change.attributeName === 'class') return change.target === document.body && (document.body.classList.contains('contenteditor') || /(?:^|\s)contenteditor(?:\s|$)/.test(change.oldValue || ''));
+          if (change.attributeName === 'class') return change.target === document.body && (markers.length > 0 || document.body.classList.contains('contenteditor') || /(?:^|\s)contenteditor(?:\s|$)/.test(change.oldValue || ''));
           return change.attributeName === 'data-wcs-style-flags' || change.attributeName === 'data-wcs-document-page' ||
             change.target.matches('meta[name="ajs-action"]') ||
             markers.indexOf(change.target) !== -1 || relevantNode(change.target) || change.oldValue === 'wcspedia';
@@ -97,6 +98,8 @@
       return [];
     }
     var requested = requestedFlags();
+    if(requested.length) document.body.setAttribute('data-wcs-active-style-flags', requested.join(' '));
+    else document.body.removeAttribute('data-wcs-active-style-flags');
     Object.keys(owned).forEach(function (flag) {
       if (requested.indexOf(flag) === -1) { document.body.classList.remove('citi-' + flag); delete owned[flag]; }
     });
@@ -133,16 +136,16 @@
     if (destroyed) return;
     pause();
     destroyed = true;
-    document.removeEventListener('DOMContentLoaded', refresh);
-    window.removeEventListener('load', refresh);
+    document.removeEventListener('DOMContentLoaded', start);
+    window.removeEventListener('load', start);
     window.removeEventListener('pageshow', start);
     window.removeEventListener('pagehide', pause);
     window.removeEventListener('popstate', refresh);
   }
 
   window.WCSPageStyleFlags = Object.freeze({ refresh: refresh, destroy: destroy });
-  document.addEventListener('DOMContentLoaded', refresh);
-  window.addEventListener('load', refresh);
+  document.addEventListener('DOMContentLoaded', start);
+  window.addEventListener('load', start);
   window.addEventListener('pageshow', start);
   window.addEventListener('pagehide', pause);
   window.addEventListener('popstate', refresh);

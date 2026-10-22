@@ -20,7 +20,7 @@
   }
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['entitlements']?.version !== '8352ba093681') {
+  if (!window.WCSPageModules || window.WCSPageModules['entitlements']?.version !== 'fdfab918172f') {
     failPage('Load wcspedia-entitlements.js before wcspedia-entitlementsHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }

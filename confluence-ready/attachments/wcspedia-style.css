@@ -1388,3 +1388,15 @@
 #wcspedia .wcs-insights-search.wcs-data-table-search input{flex:1!important;min-width:0!important;height:48px!important;padding:12px 15px!important;border:1px solid #bccbdc!important;border-radius:var(--control-radius,6px)!important;background:#fff!important;color:var(--navy,#17355f)!important;font-size:14px!important}
 #wcspedia .wcs-insights-topic-filter .wcs-ui-select{width:180px!important}
 @media(max-width:520px){#wcspedia .wcs-insights-search.wcs-data-table-search{max-width:none!important;min-width:0!important;width:100%!important;flex-basis:100%!important}#wcspedia .wcs-insights-topic-filter{margin-bottom:12px!important}}
+
+/* Native article chrome only. The helper sets this attribute on marked page
+   views and removes it in editors, previews, app pages and on teardown.
+   Do not hide navBar, the article h1, WCSpedia discussion or article actions. */
+body[data-wcs-active-style-flags~="hide-title"] #title-heading,
+body[data-wcs-active-style-flags~="hide-actions"] #main-header .content-navigation,
+body[data-wcs-active-style-flags~="hide-actions"] #content > .page-actions,
+body[data-wcs-active-style-flags~="hide-comments"] #comments-section,
+body[data-wcs-active-style-flags~="hide-comments"] #add-comment,
+body[data-wcs-active-style-flags~="hide-footer"] #footer {
+  display: none !important;
+}

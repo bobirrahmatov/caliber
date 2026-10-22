@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === '8352ba093681') return;
+  if (registry.addDocument && registry.addDocument.version === 'fdfab918172f') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -2077,10 +2077,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var actors=await Promise.all(ids.map(async function(id){var p=people.find(function(x){return x.id===id;});if(!p)fail('Choose an available author, reviewer and manager.');var soeid=E.normalizeSOEID(p.soeid||(p.confluence||{}).username);if(!soeid)fail('Workflow assignments need valid SOEIDs.');var u=await request('/rest/api/user?username='+encodeURIComponent((p.confluence||{}).username||soeid),null,undefined,signal);if(!E.identity(u)||E.identity(u).soeid!==soeid)fail('An assigned person cannot be verified in Confluence.','IDENTITY_MAPPING');return {type:'known',username:u.username,userKey:u.userKey};}));
       return actors;
     }
-    async function restrictUpdate(p,users,signal){
-      // Use the documented Server/DC write shape, not expanded user responses.
-      // Omitted operations are preserved by Confluence: do not rewrite read
-      // restrictions from a snapshot that another administrator may change.
+    async function restrictUpdate(p,users,signal,publication){
+      // Send a complete read/update pair. Restricted pages require each editor
+      // to be present in read as well; inherited/group access is not a substitute.
+      // A new publication intentionally becomes viewable through space/destination
+      // access. Never clear viewing restrictions on an existing published page.
       var subjectsForWrite=users.map(function(user){
         if(!user||typeof user.username!=='string'||!user.username.trim())fail('Confluence did not return an assigned username for page restrictions.','IDENTITY_MAPPING');
         return {type:'known',username:user.username};
@@ -2092,18 +2093,33 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       try{
         var readBefore=restrictionRows(await restrictions(p.id,'read',signal),'read');
         var before=restrictionRows(await restrictions(p.id,'update',signal),'update');
+        function readSubjects(value){
+          var mapped=value.users.map(function(u){if(!u||typeof u.username!=='string'||!u.username.trim())fail('A native viewer cannot be identified safely.','INVALID_PERMISSIONS');return {type:'known',username:u.username};});
+          var groups=value.groups.map(function(g){if(!g||typeof g.name!=='string'||!g.name.trim())fail('A native viewing group cannot be identified safely.','INVALID_PERMISSIONS');return {name:g.name};});
+          return {users:mapped,groups:groups};
+        }
+        function subjects(value){return {users:value.users.map(function(u){return E.normalizeSOEID(u.username);}).sort(),groups:value.groups.map(function(g){return g.name;}).sort()};}
+        var desiredRead=readSubjects(readBefore);
+        var firstPublication=publication&&publication.first&&parent(p)===workingId&&marked(p,'wcs-kind-published');
+        if(firstPublication)desiredRead={users:[],groups:[]};
+        // Private Working drafts explicitly include each assigned person. For
+        // existing restricted publications preserve the audience and include the
+        // verified approving editor. Unrestricted publications stay unrestricted.
+        if(!publication||desiredRead.users.length||desiredRead.groups.length){
+          subjectsForWrite.forEach(function(u){if(!desiredRead.users.some(function(v){return E.normalizeSOEID(v.username)===E.normalizeSOEID(u.username);}))desiredRead.users.push(u);});
+        }
+        var sameRead=JSON.stringify(subjects(readBefore))===JSON.stringify(subjects(desiredRead));
         // An exact native policy already satisfies this step. This also allows
         // an authorized space owner to provision it through the native dialog.
         // Never accept a superset, groups, an unexpanded list or a failed read.
-        if(!matches(before)){
+        if(!matches(before)||!sameRead){
           stage='set editing restrictions';
-          await request('/rest/api/content/'+p.id+'/restriction','PUT',[{operation:'update',restrictions:{user:subjectsForWrite,group:[]}}],signal);
+          await request('/rest/api/content/'+p.id+'/restriction','PUT',[{operation:'read',restrictions:{user:desiredRead.users,group:desiredRead.groups}},{operation:'update',restrictions:{user:subjectsForWrite,group:[]}}],signal);
         }
         stage='verify restrictions';
         var r=restrictionRows(await restrictions(p.id,'update',signal),'update');
         var readAfter=restrictionRows(await restrictions(p.id,'read',signal),'read');
-        function subjects(value){return {users:value.users.map(function(u){return u.userKey||u.accountId||u.username;}).sort(),groups:value.groups.map(function(g){return g.name;}).sort()};}
-        if(JSON.stringify(subjects(readBefore))!==JSON.stringify(subjects(readAfter)))fail('Native viewing restrictions changed while saving. Inspect the page restrictions before continuing.','RESTRICTIONS_CONFLICT');
+        if(JSON.stringify(subjects(desiredRead))!==JSON.stringify(subjects(readAfter)))fail('The requested native viewing restrictions were not confirmed. Publication has not continued.','RESTRICTIONS_CONFLICT');
         if(!matches(r))fail('Native edit restrictions were not confirmed. Publication has not continued.','RESTRICTIONS_UNCONFIRMED');
       }catch(error){
         aborted(signal);
@@ -2111,7 +2127,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         // Preserve status/code and UNKNOWN_COMMIT semantics for exact-request
         // recovery. A denial must not become a retry against a looser endpoint.
         var guidance=error.status===404?'The restriction endpoint or page is unavailable to this account; a successful page GET does not verify this endpoint.':error.status===401?'Sign in again before checking this same save.':error.status===403||error.code==='FORBIDDEN'?'Ask the space owner to check native Edit and Restrict permissions; JSON entitlements do not grant these.':error.status===400?'Confluence rejected the restriction request; use the server detail below to check the assigned native usernames and permissions.':'The restriction step was not confirmed.';
-        error.message='Job aid page '+p.id+': could not '+stage+'. '+guidance+' Required individual editors: '+subjectsForWrite.map(function(u){return u.username;}).join(', ')+'. Keep viewing restrictions unchanged. '+error.message;
+        error.message='Job aid page '+p.id+': could not '+stage+'. '+guidance+' Required individual editors: '+subjectsForWrite.map(function(u){return u.username;}).join(', ')+'. Working drafts need matching View and Edit access; a first publication must retain space-reader visibility. '+error.message;
         if([400,403,404,405].includes(error.status)||['FORBIDDEN','UNKNOWN_COMMIT'].includes(error.code))error.recoverable=true;
         throw error;
       }
@@ -2285,7 +2301,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if(!op(published,'update'))fail('Confluence does not permit updating the published page.','FORBIDDEN');
         if(!direct){
           var approver=users.find(function(u){return E.normalizeSOEID(u.username)===who.soeid;});if(!approver)fail('Only an assigned publisher can publish.','FORBIDDEN');
-          await restrictUpdate(published,[approver],signal);
+          await restrictUpdate(published,[approver],signal,{first:!doc.publishedConfluencePageId});
         }
         var publishedMedia=await stageMedia(doc,published,{},p.id,signal);
         if(marked(published,'wcs-operation-'+requestId)?published.version.number!==journal.value.expectedPublishedVersion+1:published.version.number!==journal.value.expectedPublishedVersion)fail('The published page changed during approval.','CONFLICT');
@@ -4282,5 +4298,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: '8352ba093681', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
+  registry.addDocument = { version: 'fdfab918172f', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
 })();
