@@ -20,6 +20,54 @@
     failPage('This page contains more than one WCSpedia application macro. Keep one matching page macro in the page body; do not place an application macro in navBar.');
     return;
   }
+  // Recover from hosts which skip, alter or defer executable inline scripts.
+  // The data attribute is inert JSON: never evaluate code from page markup.
+  if (!mount.wcsPageConfig && mount.hasAttribute('data-wcs-page-settings')) {
+    try {
+      const payload = JSON.parse(mount.getAttribute('data-wcs-page-settings'));
+      if (!payload || !payload.role || !payload.settings || !payload.settings.pageIds) throw new Error('Incomplete settings');
+      /* EDIT SETTINGS HERE — no separate config.js attachment.
+ * pageIds.home = numeric pageId from the WCSpedia landing page URL.
+ * Do not enter a space ID, space name or space key as pageIds.home.
+ * spaceKey = exact Confluence space key, which may differ from "WCSpedia".
+ * Leave spaceKey blank to resolve and verify the landing page's actual space.
+ * Every search, including Updated year, stays in that space and landing tree.
+ * attachmentPageId = the page hosting JS, logos, reader JSON and entitlements.json.
+ * Entitlements always read entitlements.json from attachmentPageId.
+ * No separate entitlement source, filename or policy-page setting is required.
+ * pageIds.entitlements is the interface page, not the policy attachment host.
+ * Keep the same IDs in all seven macros; only their page roles differ.
+ * Native-session mode uses built-in Confluence APIs; leave legacy services empty.
+ */
+(function () {
+  'use strict';
+  var settings = payload.settings;
+  var context = settings.contextPath.replace(/\/+$/, '');
+  var rootPageId = settings.pageIds.home;
+  var attachmentPageId = settings.attachmentPageId || rootPageId;
+  var attachment = function (name) { return context + '/download/attachments/' + encodeURIComponent(attachmentPageId) + '/' + name + '?api=v2'; };
+  var pages = {};
+  Object.keys(settings.pageIds).forEach(function (key) { pages[key] = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.pageIds[key]); });
+  pages.insights = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.insightsPageId);
+  window.WCS_CONFIG = Object.assign({}, settings.services, {
+    mode: 'confluence', authoringMode: settings.authoringMode, contextPath: context, rootPageId: rootPageId,
+    attachmentPageId: attachmentPageId, attachmentFilename: 'wcspedia-published.json',
+    pageRole: payload.role, pages: pages, showConnectionStatus: false, mountGlobalTools: false,
+    brandLogoUrl: attachment('wcspedia-logo.png'),
+    nativePublication: { enabled: true, publishedRootPageId: rootPageId, workingRootPageId: settings.workingRootPageId, areaPageIds: settings.areaPageIds, insightsPageId: settings.insightsPageId, insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'] },
+    search: settings.search, charts: settings.charts,
+    exports: Object.assign({}, settings.exports, { logoUrl: attachment('citi-logo.png'), mdxTemplateUrl: attachment('wcspedia-document.mdx') })
+  });
+  if (settings.spaceKey) window.WCS_CONFIG.spaceKey = settings.spaceKey;
+  var mount = document.getElementById('wcspedia');
+  if (mount) mount.wcsPageConfig = window.WCS_CONFIG;
+})();
+
+    } catch (error) {
+      failPage('WCSpedia page settings could not be read from this HTML macro. Replace its complete contents with html/wcspedia-my-workspace.html from the configured package. Keep live JSON unchanged.');
+      return;
+    }
+  }
   // The page macro owns its configuration. Shared helpers may assign a global
   // config while attachments download; they must not change this page's role.
   const pageConfig = mount.wcsPageConfig || window.WCS_CONFIG;
@@ -40,7 +88,7 @@
   window.WCS_CONFIG = pageConfig;
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['mine']?.version !== 'cdd10defd958') {
+  if (!window.WCSPageModules || window.WCSPageModules['mine']?.version !== '814dd9396ec3') {
     failPage('Load wcspedia-my-workspace.js before wcspedia-my-workspaceHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }

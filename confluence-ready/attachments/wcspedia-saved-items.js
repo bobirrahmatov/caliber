@@ -20,6 +20,54 @@
     failPage('This page contains more than one WCSpedia application macro. Keep one matching page macro in the page body; do not place an application macro in navBar.');
     return;
   }
+  // Recover from hosts which skip, alter or defer executable inline scripts.
+  // The data attribute is inert JSON: never evaluate code from page markup.
+  if (!mount.wcsPageConfig && mount.hasAttribute('data-wcs-page-settings')) {
+    try {
+      const payload = JSON.parse(mount.getAttribute('data-wcs-page-settings'));
+      if (!payload || !payload.role || !payload.settings || !payload.settings.pageIds) throw new Error('Incomplete settings');
+      /* EDIT SETTINGS HERE — no separate config.js attachment.
+ * pageIds.home = numeric pageId from the WCSpedia landing page URL.
+ * Do not enter a space ID, space name or space key as pageIds.home.
+ * spaceKey = exact Confluence space key, which may differ from "WCSpedia".
+ * Leave spaceKey blank to resolve and verify the landing page's actual space.
+ * Every search, including Updated year, stays in that space and landing tree.
+ * attachmentPageId = the page hosting JS, logos, reader JSON and entitlements.json.
+ * Entitlements always read entitlements.json from attachmentPageId.
+ * No separate entitlement source, filename or policy-page setting is required.
+ * pageIds.entitlements is the interface page, not the policy attachment host.
+ * Keep the same IDs in all seven macros; only their page roles differ.
+ * Native-session mode uses built-in Confluence APIs; leave legacy services empty.
+ */
+(function () {
+  'use strict';
+  var settings = payload.settings;
+  var context = settings.contextPath.replace(/\/+$/, '');
+  var rootPageId = settings.pageIds.home;
+  var attachmentPageId = settings.attachmentPageId || rootPageId;
+  var attachment = function (name) { return context + '/download/attachments/' + encodeURIComponent(attachmentPageId) + '/' + name + '?api=v2'; };
+  var pages = {};
+  Object.keys(settings.pageIds).forEach(function (key) { pages[key] = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.pageIds[key]); });
+  pages.insights = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.insightsPageId);
+  window.WCS_CONFIG = Object.assign({}, settings.services, {
+    mode: 'confluence', authoringMode: settings.authoringMode, contextPath: context, rootPageId: rootPageId,
+    attachmentPageId: attachmentPageId, attachmentFilename: 'wcspedia-published.json',
+    pageRole: payload.role, pages: pages, showConnectionStatus: false, mountGlobalTools: false,
+    brandLogoUrl: attachment('wcspedia-logo.png'),
+    nativePublication: { enabled: true, publishedRootPageId: rootPageId, workingRootPageId: settings.workingRootPageId, areaPageIds: settings.areaPageIds, insightsPageId: settings.insightsPageId, insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'] },
+    search: settings.search, charts: settings.charts,
+    exports: Object.assign({}, settings.exports, { logoUrl: attachment('citi-logo.png'), mdxTemplateUrl: attachment('wcspedia-document.mdx') })
+  });
+  if (settings.spaceKey) window.WCS_CONFIG.spaceKey = settings.spaceKey;
+  var mount = document.getElementById('wcspedia');
+  if (mount) mount.wcsPageConfig = window.WCS_CONFIG;
+})();
+
+    } catch (error) {
+      failPage('WCSpedia page settings could not be read from this HTML macro. Replace its complete contents with html/wcspedia-saved-items.html from the configured package. Keep live JSON unchanged.');
+      return;
+    }
+  }
   // The page macro owns its configuration. Shared helpers may assign a global
   // config while attachments download; they must not change this page's role.
   const pageConfig = mount.wcsPageConfig || window.WCS_CONFIG;
@@ -38,6 +86,152 @@
   // conflicting marker/configuration or a mismatched pair still fails closed.
   if (!markedRole) mount.setAttribute('data-wcs-page-role', 'saved');
   window.WCS_CONFIG = pageConfig;
+
+  // Reuse inline boot when available; otherwise start it from this attachment.
+/* Shared WCSpedia loading layer. Based on the Covenants overlay and the
+ * progress track in wealth/Old/sampleoverlay.html; no external libraries. */
+(function (global) {
+  'use strict';
+  // A shared Confluence header may load this before the page's full bundle.
+  // Keep one API and ID sequence when the same component is included again.
+  if (global.WCSLoadingOverlay && typeof global.WCSLoadingOverlay.create === 'function' && typeof global.WCSLoadingOverlay.skeleton === 'function') return;
+  let sequence = 0;
+  function create({target, delayMs = 0}) {
+    const doc = target.ownerDocument, pending = new Set();
+    let overlay, message, bar, before, attributes, overflow, showTimer = null, queuedProgress = null;
+    function show(text = 'Loading WCSpedia…') {
+      if (!overlay && delayMs > 0) {
+        if (showTimer === null) showTimer = global.setTimeout(() => { showTimer = null; display(text); }, delayMs);
+        return;
+      }
+      display(text);
+    }
+    function display(text) {
+      if (!overlay) {
+        const id = 'wcs-loading-message-' + (++sequence);
+        before = doc.activeElement;
+        attributes = {busy:target.getAttribute('aria-busy'), inert:target.getAttribute('inert')};
+        overflow = doc.body.style.overflow;
+        target.setAttribute('aria-busy', 'true');
+        target.setAttribute('inert', '');
+        doc.body.style.overflow = 'hidden';
+        overlay = doc.createElement('div');
+        overlay.className = 'wcs-loading-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', id);
+        overlay.tabIndex = -1;
+        overlay.innerHTML = '<div class="wcs-loading-panel"><div class="wcs-loading-logo" role="img" aria-label="Citi"></div>' +
+          '<p class="wcs-loading-title">WCSpedia</p>' +
+          '<p class="wcs-loading-message" id="' + id + '" role="status" aria-live="polite" aria-atomic="true"></p>' +
+          '<div class="wcs-loading-track" role="progressbar" aria-label="Page loading progress"><div class="wcs-loading-fill"></div></div></div>';
+        message = overlay.querySelector('.wcs-loading-message');
+        bar = overlay.querySelector('.wcs-loading-track');
+        doc.body.append(overlay);
+        doc.addEventListener('keydown', keepFocus, true);
+        overlay.focus({preventScroll:true});
+      }
+      overlay.classList.add('is-indeterminate');
+      bar.removeAttribute('aria-valuenow');
+      bar.removeAttribute('aria-valuemin');
+      bar.removeAttribute('aria-valuemax');
+      message.textContent = text;
+      bar.setAttribute('aria-valuetext', text);
+      if (queuedProgress) { const step = queuedProgress; queuedProgress = null; progress(...step); }
+    }
+    function keepFocus(event) {
+      if (event.key === 'Tab' && overlay) {
+        event.preventDefault();
+        event.stopPropagation();
+        overlay.focus({preventScroll:true});
+      }
+    }
+    // Progress counts completed loading steps, never fabricated network bytes.
+    function progress(completed, total, text) {
+      if (!overlay && showTimer !== null) { queuedProgress = [completed, total, text]; return; }
+      if (!overlay || !Number.isFinite(completed) || !Number.isFinite(total) || total <= 0) return;
+      const value = Math.max(0, Math.min(total, completed));
+      overlay.classList.remove('is-indeterminate');
+      overlay.style.setProperty('--wcs-loading-progress', (value / total * 100) + '%');
+      bar.setAttribute('aria-valuemin', '0');
+      bar.setAttribute('aria-valuemax', String(total));
+      bar.setAttribute('aria-valuenow', String(value));
+      if (text) message.textContent = text;
+      bar.setAttribute('aria-valuetext', value + ' of ' + total + ' loading steps complete. ' + message.textContent);
+    }
+    function hide() {
+      queuedProgress = null;
+      if (showTimer !== null) { global.clearTimeout(showTimer); showTimer = null; }
+      if (!overlay) return;
+      const restoreFocus = doc.activeElement === overlay || overlay.contains(doc.activeElement);
+      overlay.remove(); overlay = null;
+      doc.removeEventListener('keydown', keepFocus, true);
+      for (const [name, previous] of [['aria-busy', attributes.busy], ['inert', attributes.inert]]) {
+        if (previous == null) target.removeAttribute(name); else target.setAttribute(name, previous);
+      }
+      if (doc.body.style.overflow === 'hidden') doc.body.style.overflow = overflow;
+      if (restoreFocus && before?.isConnected && !before.closest('[inert]')) before.focus({preventScroll:true});
+    }
+    // Bound read-only startup/refresh waits. A timeout rejects; it never reports
+    // success or retries a write whose result could still be uncertain.
+    async function wait(promise, {timeoutMs = 60000} = {}) {
+      let timer, rejectWait;
+      const timeout = new Promise((_, reject) => {
+        rejectWait = reject;
+        timer = global.setTimeout(() => reject(new Error('Loading took too long. Check your connection, then try again.')), timeoutMs);
+      });
+      const cancel = () => rejectWait(new Error('Page loading was interrupted.'));
+      pending.add(cancel);
+      try { return await Promise.race([promise, timeout]); }
+      finally { global.clearTimeout(timer); pending.delete(cancel); }
+    }
+    function destroy() {
+      hide();
+      for (const cancel of pending) cancel();
+      global.removeEventListener('pagehide', destroy);
+    }
+    global.addEventListener('pagehide', destroy);
+    return {show, progress, hide, wait, destroy};
+  }
+  function skeleton(label = 'Loading documents…') {
+    const safe = String(label).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    return '<div class="wcs-loading-skeleton" role="status"><span class="sr-only">'+safe+'</span><div aria-hidden="true">'+
+      Array.from({length:3}, () => '<div class="wcs-skeleton-card"><i></i><i></i><i></i></div>').join('')+'</div></div>';
+  }
+  global.WCSLoadingOverlay = {create, skeleton};
+})(window);
+
+/* Runs inline in each page macro, before either attachment script downloads.
+ * Uses the existing global stylesheet and hands the same overlay to app.js. */
+(function (global) {
+  'use strict';
+  const target=document.getElementById('wcspedia');
+  if(!target||global.WCSPageBoot)return;
+  const loading=global.WCSLoadingOverlay.create({target});
+  let timer,failed=false,claimed=false;
+  function fail(message){
+    if(failed||claimed)return;
+    failed=true;clearTimeout(timer);loading.destroy();
+    const box=document.createElement('div');box.className='boot-state';box.setAttribute('role','alert');
+    const heading=document.createElement('h1');heading.textContent='WCSpedia could not load';
+    const detail=document.createElement('p');detail.textContent=message;
+    const retry=document.createElement('button');retry.className='button';retry.textContent='Try again';retry.onclick=()=>location.reload();
+    box.append(heading,detail,retry);target.replaceChildren(box);
+  }
+  global.WCSPageBoot={
+    get failed(){return failed;},
+    fail,
+    claim(mount){
+      if(mount!==target)return null;
+      if(failed)throw new Error('Page startup expired. Reload to try again.');
+      claimed=true;clearTimeout(timer);return loading;
+    }
+  };
+  loading.show('Loading WCSpedia…');
+  timer=setTimeout(()=>fail('Page scripts took too long to load. Check your connection and try again.'),60000);
+  global.addEventListener('pagehide',()=>{clearTimeout(timer);loading.hide();});
+  global.addEventListener('pageshow',event=>{if(event.persisted&&!claimed)fail('Page loading was interrupted. Reload to try again.');});
+})(window);
 
   const modules = window.WCSPageModules = window.WCSPageModules || {};
   if (modules['saved']) return;
@@ -9963,5 +10157,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['saved'] = { version: 'cdd10defd958' };
+  modules['saved'] = { version: '814dd9396ec3' };
 })();
