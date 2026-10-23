@@ -290,6 +290,24 @@ or failed cover selects the article's stable image from the pool.
 These are local implementation and fixture-test results. Confluence server
 latency and the Horizon network still determine live response times.
 
+## Reader sidebar links and icons — 23 October
+
+Replace the attachments with this build, including `wcspedia-reader-sidebar.js`, `wcspedia-page-style-flags.js`, `wcspedia-style.css` and the page bundles. Hard-refresh existing tabs. Keep the existing native sidebar: its tree, indentation, expand/collapse controls and dimensions remain owned by Confluence.
+
+On document readers, page-tree links receive small document/folder icons and list bullets are hidden. Published WCSpedia child pages with both `wcs-published` and `wcs-reader` labels, in the configured space/root and outside Working, open the same `#/published/<pageId>` reader as My Workspace. The helper changes real link destinations, including keyboard and new-tab navigation. It verifies metadata with at most three concurrent read-only requests and a six-second timeout per request; no second tree is fetched. Collections, unmanaged pages and failed/unverified lookups retain their native URLs. Leaving the reader restores the original links and removes the icons.
+
+CSS alone cannot change link destinations. Keep the existing article-local sidebar HTML macro on native articles; do not add its loader to navBar. For an older article missing it, insert `html/wcspedia-reader-sidebar.html` once into that article's HTML macro. New publications already include it. The existing header configuration supplies the confirmed root and space IDs; do not add another navigation header or reset JSON. Local fixture tests do not verify the internal Confluence instance.
+
+## Native light and dark themes — 23 October
+
+WCSpedia now uses Confluence's native design tokens for text, surfaces, borders, focus, links and status colours. It follows the active host theme immediately, without another toggle, JavaScript listener, stylesheet request or library. `data-color-mode="dark"` has scoped colour fallbacks for hosts whose token stylesheet loads later. The original/light theme retains the existing Citi fallback colours. Host theme tokens take precedence. Images, Citi logos and deliberate branded artwork are not inverted.
+
+The single `attachments/wcspedia-style.css` covers the landing page, Insights, reader, Workspace, Saved, Entitlements, editor, dialogs, notifications, loading/skeleton feedback, native published articles and reader sidebar. Existing published articles pick up the CSS without republication. Sidebar links have themed document/folder icons, hover/selected colours and focus outlines; native tree positioning and controls are unchanged. Its reader-only loader still belongs on articles, not navBar.
+
+For this theme update, replace **wcspedia-style.css on attachment page 3962195316** and hard-refresh. Keep the existing Citi/CP.css Look and Feel import and the existing navbar stylesheet link. Do not paste the compiled CSS into an HTML macro, add a second stylesheet or replace live JSON. If updating from an earlier release, use the package's full attachments as documented above.
+
+Test using Confluence's profile menu in Light and Dark, and switch with an article/editor open. Verify text, Article details, form fields, dropdowns, dialogs and sidebar selection. Local fixtures verify WCSpedia's theme integration and fallback contrast; they do not establish the internal instance's theme/plugin behaviour. Author-supplied images and embedded third-party content keep their own presentation.
+
 ## Configured page IDs
 
 Space key: `wcspedia`. Context: `/confluence`. Attachment page: `3962195316`.

@@ -77,7 +77,7 @@
         try {
           var url = new URL(link.getAttribute('href'), window.location.href);
           if (url.origin !== window.location.origin) return;
-          var id = url.searchParams.get('pageId') || (url.pathname.match(/\/pages\/(\d+)(?:\/|$)/) || [])[1];
+          var id = (url.hash.match(/^#\/published\/([1-9]\d*)$/) || [])[1] || url.searchParams.get('pageId') || (url.pathname.match(/\/pages\/(\d+)(?:\/|$)/) || [])[1];
           if (!/^[1-9]\d{0,19}$/.test(id || '')) return;
           var suffix = ' · WCS ' + id, walker = document.createTreeWalker(link, 4), node;
           while ((node = walker.nextNode())) {
