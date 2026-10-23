@@ -20,7 +20,14 @@
     failPage('This page contains more than one WCSpedia application macro. Keep one matching page macro in the page body; do not place an application macro in navBar.');
     return;
   }
-  const configuredRole = window.WCS_CONFIG && window.WCS_CONFIG.pageRole;
+  // The page macro owns its configuration. Shared helpers may assign a global
+  // config while attachments download; they must not change this page's role.
+  const pageConfig = mount.wcsPageConfig || window.WCS_CONFIG;
+  const configuredRole = pageConfig && pageConfig.pageRole;
+  if (!configuredRole) {
+    failPage('WCSpedia page settings are missing. Replace the entire existing HTML macro on this page with html/wcspedia-entitlements.html from the configured upload package, then publish the page. Uploading attachments does not update a page macro. Keep live JSON unchanged.');
+    return;
+  }
   const markedRole = mount.getAttribute('data-wcs-page-role');
   if (configuredRole !== 'entitlements' || (markedRole && markedRole !== 'entitlements')) {
     failPage('The WCSpedia JavaScript does not match this HTML macro. Script role: entitlements; settings role: ' + (configuredRole || 'missing') + '; HTML marker: ' + (markedRole || 'missing') + '. Use wcspedia-entitlements.html with wcspedia-entitlements.js and wcspedia-entitlementsHTMLPage.js on the same page.');
@@ -30,6 +37,7 @@
   // only after the inline settings agree with this role-specific script. A
   // conflicting marker/configuration or a mismatched pair still fails closed.
   if (!markedRole) mount.setAttribute('data-wcs-page-role', 'entitlements');
+  window.WCS_CONFIG = pageConfig;
 
   const modules = window.WCSPageModules = window.WCSPageModules || {};
   if (modules['entitlements']) return;
@@ -9955,5 +9963,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['entitlements'] = { version: 'aa083bc91fba' };
+  modules['entitlements'] = { version: 'cdd10defd958' };
 })();

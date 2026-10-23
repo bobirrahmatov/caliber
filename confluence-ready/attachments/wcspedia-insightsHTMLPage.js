@@ -20,7 +20,14 @@
     failPage('This page contains more than one WCSpedia application macro. Keep one matching page macro in the page body; do not place an application macro in navBar.');
     return;
   }
-  const configuredRole = window.WCS_CONFIG && window.WCS_CONFIG.pageRole;
+  // The page macro owns its configuration. Shared helpers may assign a global
+  // config while attachments download; they must not change this page's role.
+  const pageConfig = mount.wcsPageConfig || window.WCS_CONFIG;
+  const configuredRole = pageConfig && pageConfig.pageRole;
+  if (!configuredRole) {
+    failPage('WCSpedia page settings are missing. Replace the entire existing HTML macro on this page with html/wcspedia-insights.html from the configured upload package, then publish the page. Uploading attachments does not update a page macro. Keep live JSON unchanged.');
+    return;
+  }
   const markedRole = mount.getAttribute('data-wcs-page-role');
   if (configuredRole !== 'insights' || (markedRole && markedRole !== 'insights')) {
     failPage('The WCSpedia JavaScript does not match this HTML macro. Script role: insights; settings role: ' + (configuredRole || 'missing') + '; HTML marker: ' + (markedRole || 'missing') + '. Use wcspedia-insights.html with wcspedia-insights.js and wcspedia-insightsHTMLPage.js on the same page.');
@@ -30,9 +37,10 @@
   // only after the inline settings agree with this role-specific script. A
   // conflicting marker/configuration or a mismatched pair still fails closed.
   if (!markedRole) mount.setAttribute('data-wcs-page-role', 'insights');
+  window.WCS_CONFIG = pageConfig;
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['insights']?.version !== 'aa083bc91fba') {
+  if (!window.WCSPageModules || window.WCSPageModules['insights']?.version !== 'cdd10defd958') {
     failPage('Load wcspedia-insights.js before wcspedia-insightsHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }
