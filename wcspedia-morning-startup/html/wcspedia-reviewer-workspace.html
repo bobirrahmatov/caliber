@@ -1,0 +1,98 @@
+<!-- WCSpedia Reviewer workspace — Covenants-style HTML macro.
+Paste this whole fragment into one HTML macro on the matching native page.
+Page IDs and attachment URLs are already configured for this installation.
+3962195316 is the files page, not necessarily the landing page.
+Use your existing global WCSpedia CSS; do not add a header or font here.
+Order: inline settings → page logic JS → page HTMLPage JS. No config.js file.
+-->
+<div id="wcspedia" data-wcs-page-role="review" role="main" aria-label="WCSpedia Reviewer workspace"></div>
+<script>
+/* EDIT SETTINGS HERE — no separate config.js attachment.
+ * pageIds.home = numeric pageId from the WCSpedia landing page URL.
+ * Do not enter a space ID, space name or space key as pageIds.home.
+ * spaceKey = exact Confluence space key, which may differ from "WCSpedia".
+ * Leave spaceKey blank to resolve and verify the landing page's actual space.
+ * Every search, including Updated year, stays in that space and landing tree.
+ * attachmentPageId = the page hosting JS, logos, reader JSON and entitlements.json.
+ * Entitlements always read entitlements.json from attachmentPageId.
+ * No separate entitlement source, filename or policy-page setting is required.
+ * pageIds.entitlements is the interface page, not the policy attachment host.
+ * Keep the same IDs in all seven macros; only their page roles differ.
+ * Native-session mode uses built-in Confluence APIs; leave legacy services empty.
+ */
+(function () {
+  'use strict';
+  var settings = {
+  "authoringMode": "confluence-session",
+  "contextPath": "/confluence",
+  "spaceKey": "wcspedia",
+  "attachmentPageId": "3962195316",
+  "pageIds": {
+    "home": "3954553300",
+    "mine": "3961735744",
+    "review": "3961735749",
+    "saved": "3961735759",
+    "entitlements": "3961735763",
+    "faq": "3973992401"
+  },
+  "insightsPageId": "3961735728",
+  "workingRootPageId": "3961735834",
+  "areaPageIds": {
+    "credit-approval-control": "3961735771",
+    "credit-information-management": "3961735776",
+    "credit-management-reporting": "3961735781",
+    "deal-closing": "3961735791",
+    "documentation-pledging": "3961735795",
+    "emea-credit-admin": "3961735800",
+    "loan-management": "3961735803",
+    "regional-operating-manuals": "3961735808"
+  },
+  "search": {
+    "timeoutMs": 12000,
+    "excludePageIds": [],
+    "excludeAncestorIds": []
+  },
+  "services": {
+    "workspaceEndpoint": "",
+    "workflowEndpoint": "",
+    "suggestionEndpoint": "",
+    "entitlementsEndpoint": "",
+    "metricsEndpoint": "",
+    "bookmarksEndpoint": "",
+    "healthEndpoint": ""
+  },
+  "charts": {
+    "highchartsSrc": "https://cdn.jsdelivr.net/npm/highcharts@13.1.0/highcharts.js",
+    "accessibilitySrc": "https://cdn.jsdelivr.net/npm/highcharts@13.1.0/modules/accessibility.js",
+    "allowCDN": true
+  },
+  "exports": {
+    "pdfMakeUrl": "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/pdfmake.min.js",
+    "pdfFontsUrl": "https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/vfs_fonts.js",
+    "docxUrl": "https://cdn.jsdelivr.net/npm/docx@9.5.1/dist/index.iife.js",
+    "logoDataUrl": "",
+    "loadTimeout": 20000,
+    "allowCDN": true
+  }
+};
+  var context = settings.contextPath.replace(/\/+$/, '');
+  var rootPageId = settings.pageIds.home;
+  var attachmentPageId = settings.attachmentPageId || rootPageId;
+  var attachment = function (name) { return context + '/download/attachments/' + encodeURIComponent(attachmentPageId) + '/' + name + '?api=v2'; };
+  var pages = {};
+  Object.keys(settings.pageIds).forEach(function (key) { pages[key] = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.pageIds[key]); });
+  pages.insights = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.insightsPageId);
+  window.WCS_CONFIG = Object.assign({}, settings.services, {
+    mode: 'confluence', authoringMode: settings.authoringMode, contextPath: context, rootPageId: rootPageId,
+    attachmentPageId: attachmentPageId, attachmentFilename: 'wcspedia-published.json',
+    pageRole: 'review', pages: pages, showConnectionStatus: false, mountGlobalTools: false,
+    brandLogoUrl: attachment('wcspedia-logo.png'),
+    nativePublication: { enabled: true, publishedRootPageId: rootPageId, workingRootPageId: settings.workingRootPageId, areaPageIds: settings.areaPageIds, insightsPageId: settings.insightsPageId, insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'] },
+    search: settings.search, charts: settings.charts,
+    exports: Object.assign({}, settings.exports, { logoUrl: attachment('citi-logo.png'), mdxTemplateUrl: attachment('wcspedia-document.mdx') })
+  });
+  if (settings.spaceKey) window.WCS_CONFIG.spaceKey = settings.spaceKey;
+})();
+</script>
+<script src="/confluence/download/attachments/3962195316/wcspedia-reviewer-workspace.js?api=v2" onerror="document.getElementById('wcspedia').textContent='Could not load wcspedia-reviewer-workspace.js. Check the attachment page ID, filename and access.';"></script>
+<script src="/confluence/download/attachments/3962195316/wcspedia-reviewer-workspaceHTMLPage.js?api=v2" onerror="document.getElementById('wcspedia').textContent='Could not load wcspedia-reviewer-workspaceHTMLPage.js. Check the attachment page ID, filename and access.';"></script>
