@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === '814dd9396ec3') return;
+  if (registry.addDocument && registry.addDocument.version === '6460e0560d33') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -907,7 +907,7 @@
   'use strict';
 
   var STATUSES = ['Draft', 'In review', 'Changes requested', 'Awaiting approval', 'Published'];
-  var ACTIONS = ['edit', 'submit', 'request-changes', 'complete-review', 'approve', 'revise', 'delete'];
+  var ACTIONS = ['edit', 'submit', 'request-changes', 'complete-review', 'approve', 'revise', 'delete', 'reassign-owner'];
   var CONTENT_FIELDS = ['title', 'summary', 'sections', 'bodyMarkdown', 'slug', 'highlights', 'cover', 'tags', 'processes', 'regions', 'assets', 'attachments', 'governance', 'sourceMetadata', 'commentsEnabled'];
   var REQUIRED_FIELDS = ['id', 'reference', 'area', 'type', 'ownerId', 'authorId', 'reviewerId', 'approverId'];
   var REVIEW_FIELDS = ['reviewedBy', 'reviewedAt', 'reviewedRevision', 'approvedBy', 'approvedAt', 'effectiveAt', 'nextReviewAt', 'governanceReview'];
@@ -1079,7 +1079,7 @@
   function contributed(doc, current, actorId) {
     return actorId === doc.authorId || actorId === current.createdBy || (current.contributorIds || []).indexOf(actorId) !== -1;
   }
-  function actionsFor(doc, current, actorId, permissionContext) {
+  function actionsFor(doc, current, actorId, permissionContext, peopleById) {
     if (isDeleted(doc)) return [];
     var actions = [];
     var mayEdit = permissionContext == null ? actorId === doc.authorId : permissionGranted(permissionContext, doc, actorId, 'edit');
@@ -1095,6 +1095,7 @@
         if (current.reviewedBy === doc.reviewerId && current.reviewedAt && current.reviewedRevision === current.revision) actions.push('approve');
       }
     }
+    if (permissionGranted(permissionContext, doc, actorId, 'edit') && (actorId === doc.ownerId || peopleById[actorId].role === 'Manager' || permissionGranted(permissionContext, doc, actorId, 'admin'))) actions.push('reassign-owner');
     if (permissionGranted(permissionContext, doc, actorId, 'delete')) actions.push('delete');
     return actions;
   }
@@ -1102,7 +1103,7 @@
     try {
       var peopleById = peopleMap(people);
       if (!has(peopleById, actorId)) return [];
-      return actionsFor(doc, validateDocument(doc, peopleById), actorId, permissionContext);
+      return actionsFor(doc, validateDocument(doc, peopleById), actorId, permissionContext, peopleById);
     } catch (_) { return []; }
   }
   function change(field, before, after) {
@@ -1186,9 +1187,9 @@
     if (!has(peopleById, options.actorId)) fail('Choose a valid actor.');
     if (!positiveInteger(options.expectedVersion) || !positiveInteger(options.expectedRevision)) fail('Expected version and revision are required. Refresh the document and try again.');
     if (options.expectedVersion !== current.version || options.expectedRevision !== current.revision) fail('This document changed. Refresh before continuing.');
-    if (action === 'delete' && !Number.isSafeInteger(options.expectedAuditLength)) fail('Expected audit length is required before deleting. Refresh the document and try again.');
+    if (['delete','reassign-owner'].includes(action) && !Number.isSafeInteger(options.expectedAuditLength)) fail('Expected audit length is required for this action. Refresh the document and try again.');
     if (options.expectedAuditLength != null && (!Number.isSafeInteger(options.expectedAuditLength) || options.expectedAuditLength !== input.audit.length)) fail('The workflow changed. Refresh before continuing.');
-    if (actionsFor(input, current, options.actorId, options.permissionContext).indexOf(action) === -1) fail('This action is not allowed for the assigned person and current status.');
+    if (actionsFor(input, current, options.actorId, options.permissionContext, peopleById).indexOf(action) === -1) fail('This action is not allowed for the assigned person and current status.');
     var comment = requiredText(options.comment, 'A comment / change summary');
     var at = clock(options);
     if (input.audit.length && new Date(at).getTime() < new Date(input.audit[input.audit.length - 1].at).getTime()) fail('Action time cannot precede the latest audit event.');
@@ -1276,6 +1277,12 @@
       // Saving an edit of published content creates one draft atomically. The
       // approved snapshot is untouched; the event captures exact field changes.
       if (newContent) changes = changes.concat(diff(before, version, CONTENT_FIELDS.concat(['sourceImportedAt'])));
+    } else if (action === 'reassign-owner') {
+      var nextOwner = peopleById[options.ownerId];
+      if (!nextOwner || nextOwner.active === false || !['Author','Manager'].includes(nextOwner.role)) fail('Choose an active document owner with author or manager access.');
+      if (options.ownerId === doc.ownerId) fail('Choose a different document owner.');
+      changes.push(change('ownerId', doc.ownerId, options.ownerId));
+      doc.ownerId = options.ownerId;
     } else if (action === 'delete') {
       // Keep immutable snapshots and audit history. The trusted service separately
       // trashes a mapped native page only after durable audit retention succeeds.
@@ -1947,7 +1954,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 })(typeof globalThis!=='undefined'?globalThis:this,function(root,W,E,Content,Renderer){
   'use strict';
   var STATE='wcspedia.workflow.state',FILE='wcspedia-document.json',JOURNAL='wcspedia.workflow.operation',SUMMARY='wcspedia-workflow-summary';
-  var ACTIONS=['create','edit','revise','submit','request-changes','complete-review','approve','delete'];
+  var ACTIONS=['create','edit','revise','submit','request-changes','complete-review','approve','delete','reassign-owner'];
   var TYPES=['Job aid','Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'];
   var EXPAND='space,ancestors,version,operations,body.storage,history';
   function fail(message,code){var e=new Error(message);e.code=code||'VALIDATION';throw e;}
@@ -2275,7 +2282,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function bodyWrite(p,document,media,kind,requestId,expectedParent,signal){
       if(marked(p,'wcs-operation-'+requestId)){p.readerReady=marked(p,'wcs-reader-v1');return p;}
       var initial=markers(p).find(function(value){return /^wcs-created-[a-zA-Z0-9-]{16,100}$/.test(value);});
-      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,attachmentPageId:numeric(config.attachmentPageId||rootId),contextPath:context,readerSidebarUrl:context+'/download/attachments/'+numeric(config.attachmentPageId||rootId)+'/wcspedia-reader-sidebar.js?api=v2',readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
+      var v=kind==='published'?W.publishedVersion(document):W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,attachmentPageId:numeric(config.attachmentPageId||rootId),contextPath:context,readerSidebarUrl:context+'/download/attachments/'+numeric(config.attachmentPageId||rootId)+'/wcspedia-reader-sidebar.js?api=v2',readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
       var suffix=' · WCS '+p.id;
       var title=kind==='published'?v.title.slice(0,250-suffix.length)+suffix:'WCSpedia working '+document.id;
       var response=await request('/rest/api/content/'+p.id,'PUT',{id:p.id,type:'page',title:title.slice(0,250),space:{key:space},ancestors:[{id:expectedParent}],version:{number:p.version.number+1,message:'WCSpedia '+kind+' '+v.status+' v'+v.version+' r'+v.revision+' · '+requestId},body:{storage:{representation:'storage',value:body}}},signal);
@@ -2336,7 +2343,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       }else{
         var entry=(session.data.documents||[]).find(function(d){return d.id===documentKey;});if(!entry||!entry.confluencePageId)fail('Reload the document workspace before saving.','NOT_FOUND');p=await page(entry.confluencePageId,signal,workingId);state=await readState(p,signal);doc=state.document;if(!doc)fail('The working document metadata is unavailable.','INVALID_DATA');ctx.dir=directory(ctx.catalog,ctx.policy,ctx.user,state.people);actor=ctx.dir.actor;
       }
-      if(Content.isInsightType(doc.type)&&!['create','edit','revise','delete'].includes(command.action))fail('This content publishes directly to Insights; open it in the editor to publish.','INVALID_ACTION');
+      if(Content.isInsightType(doc.type)&&!['create','edit','revise','delete','reassign-owner'].includes(command.action))fail('This content publishes directly to Insights; open it in the editor to publish.','INVALID_ACTION');
+      if(command.action==='reassign-owner'){
+        var nextOwner=ctx.dir.people.find(function(person){return person.id===command.ownerId&&['Author','Manager'].includes(person.role);});
+        if(!nextOwner)fail('Choose an active author or manager.','INVALID_MAPPING');
+        var nextUser=await request('/rest/api/user?username='+encodeURIComponent((nextOwner.confluence||{}).username||nextOwner.soeid),null,undefined,signal);
+        if(!E.identity(nextUser)||E.identity(nextUser).soeid!==E.normalizeSOEID(nextOwner.soeid))fail('The new owner cannot be verified in Confluence.','IDENTITY_MAPPING');
+      }
       var journal=await storage.property(p.id,JOURNAL,options(signal));
       if(journal&&journal.value&&journal.value.requestId===requestId){if(journal.value.fingerprint!==fingerprint||journal.value.actorSOEID!==who.soeid)fail('This request ID was already used for another action.','CONFLICT');if(journal.value.done)return loadWithContext({catalog:ctx.catalog,signal:signal,workspaceScope:'document:'+documentKey},ctx);}
       else if(journal&&journal.value&&!journal.value.done)fail('Another operation is unfinished. Retry that original action before making a new change.','WRITE_PENDING');
@@ -2344,13 +2357,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if(!Array.isArray(p.operations))fail('Confluence did not return editing permissions for working page '+p.id+'. Check native page access, then retry this same save.','INVALID_PERMISSIONS');
         if(!op(p,'update'))fail('Confluence does not permit editing working page '+p.id+'. Check that page’s native Editing restrictions and your space Add page permission. A WCSpedia entitlement alone cannot grant native access.','FORBIDDEN');
         if(!creating&&command.expectedPageVersion!=null&&p.version.number!==command.expectedPageVersion)fail('The native page changed. Reload before saving.','CONFLICT');
-        if(!creating&&['edit','revise','submit'].includes(command.action)&&!E.hasGrant(ctx.policy,who,'content.edit',documentKey))fail('Your WCSpedia document edit grant is missing.','FORBIDDEN');
+        if(!creating&&['edit','revise','submit','reassign-owner'].includes(command.action)&&!E.hasGrant(ctx.policy,who,'content.edit',documentKey))fail('Your WCSpedia document edit grant is missing.','FORBIDDEN');
         if(command.action==='delete'&&(!E.hasGrant(ctx.policy,who,'content.delete',documentKey)||!op(p,'delete')))fail('Your account cannot delete this document.','FORBIDDEN');
         if(['request-changes','complete-review','approve'].includes(command.action)&&actor.role==='Reader')fail('Your active review role is no longer available.','FORBIDDEN');
         var at=new Date().toISOString();
-        var relevantIds=new Set([doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId,actor.id].concat((doc.audit||[]).map(function(e){return e.actorId;})));
+        var relevantIds=new Set([doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId,actor.id,command.ownerId].concat((doc.audit||[]).map(function(e){return e.actorId;})));
         var snapshotPeople=ctx.dir.people.filter(function(person){return relevantIds.has(person.id);});
-        if(!creating)statePreflight(W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:at,effectiveAt:at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,comment:command.comment,requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')}}),snapshotPeople);
+        if(!creating)statePreflight(W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:at,effectiveAt:at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')}}),snapshotPeople);
         journal=await storage.putProperty(p.id,JOURNAL,{schemaVersion:1,requestId:requestId,fingerprint:fingerprint,actorSOEID:who.soeid,documentKey:documentKey,action:command.action,at:at,people:snapshotPeople,expectedNativeVersion:p.version.number,priorPublishedParentId:publicationParent(doc),priorStateRevision:state.state.revision,priorAttachmentVersion:state.state.attachmentVersion||0,priorFingerprint:state.state.fingerprint,stage:'reserved',done:false},journal?journal.version.number:null,options(signal));
       }
       async function checkpoint(changes){journal=await storage.putProperty(p.id,JOURNAL,Object.assign({},journal.value,changes),journal.version.number,options(signal));}
@@ -2359,7 +2372,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(state.state.revision!==j.priorStateRevision&&!(state.state.pointer&&state.state.pointer.pending&&state.state.pointer.pending.requestId===requestId&&state.state.pointer.pending.expectedRevision===j.priorStateRevision))fail('The document state changed while this action was pending.','CONFLICT');
       if(['request-changes','complete-review','approve'].includes(command.action)&&actor.role==='Reader')fail('Your active review role is no longer available.','FORBIDDEN');
       var permissionContext={actorId:actor.id,documentId:documentKey,create:creating,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')};
-      doc=creating?W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,permissionContext:permissionContext}):W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,effectiveAt:j.at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,comment:command.comment,permissionContext:permissionContext,requireGovernance:true});
+      doc=creating?W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,permissionContext:permissionContext}):W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,effectiveAt:j.at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,permissionContext:permissionContext,requireGovernance:true});
       if(!op(p,'update'))fail('Confluence no longer permits this working-page action.','FORBIDDEN');
       // Insights uses ordinary native create/edit access, like the earlier blog
       // publisher. Only the approval workflow provisions assigned editors.
@@ -2373,13 +2386,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var media=await stageMedia(doc,p,state.media||{},p.id,signal);doc._people=j.people||ctx.dir.people;
       if(marked(p,'wcs-operation-'+requestId)?p.version.number!==j.expectedNativeVersion+1:p.version.number!==j.expectedNativeVersion)fail('The native working page changed during this operation.','CONFLICT');
       if(command.action!=='delete')p=await bodyWrite(p,doc,media,'working',requestId,workingId,signal);
-      if(command.action==='approve'||(Content.isDirectPublication(doc)&&['create','edit','revise'].includes(command.action))){
+      if(command.action==='approve'||(command.action==='reassign-owner'&&doc.publishedConfluencePageId)||(Content.isDirectPublication(doc)&&['create','edit','revise'].includes(command.action))){
         var dest=await destination(doc,signal),publishedId=doc.publishedConfluencePageId||j.publishedPageId,published;
         if(publishedId){published=await page(publishedId,signal);if(parent(published)!==dest.id&&parent(published)!==workingId&&!(Content.isDirectPublication(doc)&&parent(published)===journal.value.priorPublishedParentId))fail('The published page was moved.','PAGE_SCOPE');if(!marked(published,'wcs-document-'+documentKey))fail('The published document identity changed.','PAGE_SCOPE');if(!op(published,'update'))fail('Confluence does not permit updating the published page.','FORBIDDEN');if(doc.publishedConfluencePageId&&!j.expectedPublishedVersion&&!journal.value.expectedPublishedVersion&&published.version.number!==doc.publishedConfluencePageVersion)fail('The published page changed outside this workflow. Reconcile its native history before approving.','CONFLICT');}
         else{if(!ctx.bounds.canCreate)fail('Publishing needs your Confluence space Add page permission.','FORBIDDEN');published=await createPage('WCSpedia publication '+documentKey,documentKey,'published',requestId,signal);await checkpoint({publishedPageId:published.id,expectedPublishedVersion:published.version.number,stage:'publication-created'});}
         if(!j.expectedPublishedVersion&&!journal.value.expectedPublishedVersion)await checkpoint({publishedPageId:published.id,expectedPublishedVersion:published.version.number,stage:'publication-prepared'});
         if(!op(published,'update'))fail('Confluence does not permit updating the published page.','FORBIDDEN');
-        if(!direct){
+        if(!direct&&command.action!=='reassign-owner'){
           var approver=users.find(function(u){return E.normalizeSOEID(u.username)===who.soeid;});if(!approver)fail('Only an assigned publisher can publish.','FORBIDDEN');
           await restrictUpdate(published,[approver],signal,{first:!doc.publishedConfluencePageId});
         }
@@ -4554,5 +4567,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: '814dd9396ec3', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
+  registry.addDocument = { version: '6460e0560d33', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
 })();

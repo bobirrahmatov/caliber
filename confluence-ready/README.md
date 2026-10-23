@@ -1,3 +1,23 @@
+## October 23 latest-document timestamps
+
+Latest cards now show the visible update date and time with a timezone (Europe/Warsaw, matching the existing application date convention). Native latest discovery continues to use Confluence `lastmodified DESC`, with no publication-year cutoff. An article first published in 2025 can appear when updated today; Confluence indexing may take time to reflect the write. Local discovery also uses the published Insight revision timestamp and does not promote private draft edits.
+
+Replace the matching page JS/HTMLPage attachment pairs from this build on attachment page **3962195316** and hard-refresh. The landing pair is `wcspedia-landing.js` and `wcspedia-landingHTMLPage.js`. No page macro, navBar, CSS or live JSON change is required for this timestamp update.
+
+## October 23 layout, loader and ownership update
+
+Upload the updated runtime attachments from the configured ZIP to page 3962195316, replacing matching filenames. Keep live JSON attachments unchanged. Use matching page JS/HTMLPage pairs from this build.
+
+Update the WCSpedia helper HTML block in the existing **navBar** using `html/wcspedia-navbar.html`; preserve the actual branded navigation. This adds one small `wcspedia-loading-overlay.js` script immediately after the shared CSS. Do not add a second header or move an application macro into navBar. All seven page HTML macros retain the working morning inline-settings → logic → renderer order; already-restored macros need no change for this update.
+
+The helper starts the opaque overlay as soon as Confluence executes it and passes it to the page. FAQ also uses it. It cannot prevent a native header paint that happens before custom HTML runs. No separate loading CSS or JSON update is needed.
+
+Reader sidebars use the original native collapse control once on activation. Users can expand again. The existing collection icons are centered in the native collapsed rail. Landing and collection pages do not activate the sidebar.
+
+Open a managed document from My Workspace, choose **Reassign owner**, select an active author/manager and enter a reason. Managers/admins and the current owner can use this action with the existing JSON edit grant and native edit permission. It records old/new owner in the audit trail, retains the original author and approved content, and stays on the current view. Reassignment does not create native permissions or change JSON grants. Updating an already-published document also requires native edit access to its published page.
+
+> **Current update:** follow the layout, loader and ownership instructions above. The morning settings/logic/renderer order remains intact; earlier loader instructions below are historical.
+
 # WCSpedia — space-only upload package
 
 This release keeps the current editor, approval screens, header and fonts and uses built-in Confluence APIs for Add document, drafts, approval/publication, entitlement editing, Saved items, suggestion delivery, helpfulness voting, recorded views and content-health persistence. No custom service endpoints or server installation are required. Keep the existing WCSpedia editor, design and custom approval workflow.
@@ -254,7 +274,7 @@ continue to take priority. Existing no-cover cards also use the expanded pool.
 The first 15 image filenames are preserved; replacing the page logic enables the
 50-image selection. All source URLs are recorded in the included source manifest.
 
-### Loading and performance update — 23 October 2026
+### Earlier loading and performance update — superseded by the current loader instructions
 
 Upload the current `attachments/`, including `wcspedia-style.css`, to the
 existing attachment host. Use the matching page HTML snippets from this package,
@@ -320,7 +340,7 @@ Successful deletion retains the originating list, search filters and pagination 
 
 The landing page retains the original WCSpedia hero styling and heading “A world of knowledge. One place to find it.”, search and at most three compact latest-document cards. Explore, Insights and FAQs stay in the existing header without duplicate links below search. The promotional intro, department label in the landing body, business-area card grid and embedded FAQs were removed. The existing shared header branding is unchanged. Business areas remain available through Explore filters. Home requests only the three latest documents, without business-area count warmups.
 
-The FAQ page uses the Saved page's heading/container layout, with ten initially expanded answers and instant local question/answer search. It does not fetch document data, entitlements, analytics or saved items. It follows the same immediate macro loading overlay and shared light/dark stylesheet. Its configured Confluence page ID is **3973992401**; it is accessible through the existing header.
+The FAQ page uses the Saved page's heading/container layout, with ten initially closed answers and instant local question/answer search. It does not fetch document data, entitlements, analytics or saved items. It follows the shared header-to-page loading overlay and shared light/dark stylesheet. Its configured Confluence page ID is **3973992401**; it is accessible through the existing header.
 
 Installation from `confluence-ready/`:
 
@@ -330,6 +350,19 @@ Installation from `confluence-ready/`:
 4. Refresh the existing page macros from the same package as you update their script pairs, so their page mappings include FAQs. Refresh the existing `html/wcspedia-navbar.html` helper block in navBar to exclude the FAQ page from article comments; preserve your native header and logo. Do not add a second navbar or place the FAQ page macro there.
 
 The package is prepared and tested locally; deployment on the internal Confluence instance is a separate installation step.
+
+
+### Morning startup restored — 23 October 2026
+
+This package restores the page-loading implementation recovered from the 09:51 local command record on 23 October, before the inline overlay and subsequent recovery changes. The first six pages use that recorded startup code; FAQ uses the same sequence and retains its current content. This is a startup-only rollback: later design, editor, search and content changes remain.
+
+**These rollback instructions supersede earlier inline-overlay and settings-recovery instructions above.** Each page macro contains its root, one small inline settings block, then the matching logic and HTMLPage attachments in order. There is no inline page-boot module, markup JSON fallback or page-local config recovery. The optional current navBar helper starts the overlay before page attachments and hands it to the application. Without that helper, the application starts it after loading. Both paths use one overlay without duplicate startup skeletons.
+
+1. Upload all seven matching JavaScript pairs (14 files) to attachment page **3962195316**, replacing existing filenames.
+2. On each interface page, replace the entire existing HTML macro with its matching configured file from `html/`, then publish. Use the destination table below. Keep one application macro per page.
+3. For the current loader update, also replace the WCSpedia helper block inside navBar as described at the top. Hard-refresh the page. No JSON replacement is needed; preserve all live data and entitlements.
+
+The pre-rollback code/package and recovered builder are preserved locally under `archive/startup-before-morning-rollback-2026-10-23/`. Tests check the generated macros with the matching scripts; live Confluence behavior has not been verified from this machine.
 
 ## Configured page IDs
 

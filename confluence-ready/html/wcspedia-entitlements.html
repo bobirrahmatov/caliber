@@ -3,10 +3,9 @@ Paste this whole fragment into one HTML macro on the matching native page.
 Page IDs and attachment URLs are already configured for this installation.
 3962195316 is the files page, not necessarily the landing page.
 Use your existing global WCSpedia CSS; do not add a header or font here.
-Order: inline page settings → immediate loading overlay → page logic JS → page HTMLPage JS. No config.js file.
-Uploading this file as an attachment does not install it: replace the existing HTML macro contents on this page.
+Order: inline settings → page logic JS → page HTMLPage JS. No config.js file.
 -->
-<div id="wcspedia" data-wcs-page-role="entitlements" data-wcs-page-settings="{&quot;role&quot;:&quot;entitlements&quot;,&quot;settings&quot;:{&quot;authoringMode&quot;:&quot;confluence-session&quot;,&quot;contextPath&quot;:&quot;/confluence&quot;,&quot;spaceKey&quot;:&quot;wcspedia&quot;,&quot;attachmentPageId&quot;:&quot;3962195316&quot;,&quot;pageIds&quot;:{&quot;home&quot;:&quot;3954553300&quot;,&quot;mine&quot;:&quot;3961735744&quot;,&quot;review&quot;:&quot;3961735749&quot;,&quot;saved&quot;:&quot;3961735759&quot;,&quot;entitlements&quot;:&quot;3961735763&quot;,&quot;faq&quot;:&quot;3973992401&quot;},&quot;insightsPageId&quot;:&quot;3961735728&quot;,&quot;workingRootPageId&quot;:&quot;3961735834&quot;,&quot;areaPageIds&quot;:{&quot;credit-approval-control&quot;:&quot;3961735771&quot;,&quot;credit-information-management&quot;:&quot;3961735776&quot;,&quot;credit-management-reporting&quot;:&quot;3961735781&quot;,&quot;deal-closing&quot;:&quot;3961735791&quot;,&quot;documentation-pledging&quot;:&quot;3961735795&quot;,&quot;emea-credit-admin&quot;:&quot;3961735800&quot;,&quot;loan-management&quot;:&quot;3961735803&quot;,&quot;regional-operating-manuals&quot;:&quot;3961735808&quot;},&quot;search&quot;:{&quot;timeoutMs&quot;:12000,&quot;excludePageIds&quot;:[],&quot;excludeAncestorIds&quot;:[]},&quot;services&quot;:{&quot;workspaceEndpoint&quot;:&quot;&quot;,&quot;workflowEndpoint&quot;:&quot;&quot;,&quot;suggestionEndpoint&quot;:&quot;&quot;,&quot;entitlementsEndpoint&quot;:&quot;&quot;,&quot;metricsEndpoint&quot;:&quot;&quot;,&quot;bookmarksEndpoint&quot;:&quot;&quot;,&quot;healthEndpoint&quot;:&quot;&quot;},&quot;charts&quot;:{&quot;highchartsSrc&quot;:&quot;https://cdn.jsdelivr.net/npm/highcharts@13.1.0/highcharts.js&quot;,&quot;accessibilitySrc&quot;:&quot;https://cdn.jsdelivr.net/npm/highcharts@13.1.0/modules/accessibility.js&quot;,&quot;allowCDN&quot;:true},&quot;exports&quot;:{&quot;pdfMakeUrl&quot;:&quot;https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/pdfmake.min.js&quot;,&quot;pdfFontsUrl&quot;:&quot;https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/vfs_fonts.js&quot;,&quot;docxUrl&quot;:&quot;https://cdn.jsdelivr.net/npm/docx@9.5.1/dist/index.iife.js&quot;,&quot;logoDataUrl&quot;:&quot;&quot;,&quot;loadTimeout&quot;:20000,&quot;allowCDN&quot;:true}}}" role="main" aria-label="WCSpedia Entitlements"></div>
+<div id="wcspedia" data-wcs-page-role="entitlements" role="main" aria-label="WCSpedia Entitlements"></div>
 <script>
 /* EDIT SETTINGS HERE — no separate config.js attachment.
  * pageIds.home = numeric pageId from the WCSpedia landing page URL.
@@ -86,162 +85,14 @@ Uploading this file as an attachment does not install it: replace the existing H
   window.WCS_CONFIG = Object.assign({}, settings.services, {
     mode: 'confluence', authoringMode: settings.authoringMode, contextPath: context, rootPageId: rootPageId,
     attachmentPageId: attachmentPageId, attachmentFilename: 'wcspedia-published.json',
-    pageRole: "entitlements", pages: pages, showConnectionStatus: false, mountGlobalTools: false,
+    pageRole: 'entitlements', pages: pages, showConnectionStatus: false, mountGlobalTools: false,
     brandLogoUrl: attachment('wcspedia-logo.png'),
     nativePublication: { enabled: true, publishedRootPageId: rootPageId, workingRootPageId: settings.workingRootPageId, areaPageIds: settings.areaPageIds, insightsPageId: settings.insightsPageId, insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'] },
     search: settings.search, charts: settings.charts,
     exports: Object.assign({}, settings.exports, { logoUrl: attachment('citi-logo.png'), mdxTemplateUrl: attachment('wcspedia-document.mdx') })
   });
   if (settings.spaceKey) window.WCS_CONFIG.spaceKey = settings.spaceKey;
-  var mount = document.getElementById('wcspedia');
-  if (mount) mount.wcsPageConfig = window.WCS_CONFIG;
 })();
-
-/* Shared WCSpedia loading layer. Based on the Covenants overlay and the
- * progress track in wealth/Old/sampleoverlay.html; no external libraries. */
-(function (global) {
-  'use strict';
-  // A shared Confluence header may load this before the page's full bundle.
-  // Keep one API and ID sequence when the same component is included again.
-  if (global.WCSLoadingOverlay && typeof global.WCSLoadingOverlay.create === 'function' && typeof global.WCSLoadingOverlay.skeleton === 'function') return;
-  let sequence = 0;
-  function create({target, delayMs = 0}) {
-    const doc = target.ownerDocument, pending = new Set();
-    let overlay, message, bar, before, attributes, overflow, showTimer = null, queuedProgress = null;
-    function show(text = 'Loading WCSpedia…') {
-      if (!overlay && delayMs > 0) {
-        if (showTimer === null) showTimer = global.setTimeout(() => { showTimer = null; display(text); }, delayMs);
-        return;
-      }
-      display(text);
-    }
-    function display(text) {
-      if (!overlay) {
-        const id = 'wcs-loading-message-' + (++sequence);
-        before = doc.activeElement;
-        attributes = {busy:target.getAttribute('aria-busy'), inert:target.getAttribute('inert')};
-        overflow = doc.body.style.overflow;
-        target.setAttribute('aria-busy', 'true');
-        target.setAttribute('inert', '');
-        doc.body.style.overflow = 'hidden';
-        overlay = doc.createElement('div');
-        overlay.className = 'wcs-loading-overlay';
-        overlay.setAttribute('role', 'dialog');
-        overlay.setAttribute('aria-modal', 'true');
-        overlay.setAttribute('aria-labelledby', id);
-        overlay.tabIndex = -1;
-        overlay.innerHTML = '<div class="wcs-loading-panel"><div class="wcs-loading-logo" role="img" aria-label="Citi"></div>' +
-          '<p class="wcs-loading-title">WCSpedia</p>' +
-          '<p class="wcs-loading-message" id="' + id + '" role="status" aria-live="polite" aria-atomic="true"></p>' +
-          '<div class="wcs-loading-track" role="progressbar" aria-label="Page loading progress"><div class="wcs-loading-fill"></div></div></div>';
-        message = overlay.querySelector('.wcs-loading-message');
-        bar = overlay.querySelector('.wcs-loading-track');
-        doc.body.append(overlay);
-        doc.addEventListener('keydown', keepFocus, true);
-        overlay.focus({preventScroll:true});
-      }
-      overlay.classList.add('is-indeterminate');
-      bar.removeAttribute('aria-valuenow');
-      bar.removeAttribute('aria-valuemin');
-      bar.removeAttribute('aria-valuemax');
-      message.textContent = text;
-      bar.setAttribute('aria-valuetext', text);
-      if (queuedProgress) { const step = queuedProgress; queuedProgress = null; progress(...step); }
-    }
-    function keepFocus(event) {
-      if (event.key === 'Tab' && overlay) {
-        event.preventDefault();
-        event.stopPropagation();
-        overlay.focus({preventScroll:true});
-      }
-    }
-    // Progress counts completed loading steps, never fabricated network bytes.
-    function progress(completed, total, text) {
-      if (!overlay && showTimer !== null) { queuedProgress = [completed, total, text]; return; }
-      if (!overlay || !Number.isFinite(completed) || !Number.isFinite(total) || total <= 0) return;
-      const value = Math.max(0, Math.min(total, completed));
-      overlay.classList.remove('is-indeterminate');
-      overlay.style.setProperty('--wcs-loading-progress', (value / total * 100) + '%');
-      bar.setAttribute('aria-valuemin', '0');
-      bar.setAttribute('aria-valuemax', String(total));
-      bar.setAttribute('aria-valuenow', String(value));
-      if (text) message.textContent = text;
-      bar.setAttribute('aria-valuetext', value + ' of ' + total + ' loading steps complete. ' + message.textContent);
-    }
-    function hide() {
-      queuedProgress = null;
-      if (showTimer !== null) { global.clearTimeout(showTimer); showTimer = null; }
-      if (!overlay) return;
-      const restoreFocus = doc.activeElement === overlay || overlay.contains(doc.activeElement);
-      overlay.remove(); overlay = null;
-      doc.removeEventListener('keydown', keepFocus, true);
-      for (const [name, previous] of [['aria-busy', attributes.busy], ['inert', attributes.inert]]) {
-        if (previous == null) target.removeAttribute(name); else target.setAttribute(name, previous);
-      }
-      if (doc.body.style.overflow === 'hidden') doc.body.style.overflow = overflow;
-      if (restoreFocus && before?.isConnected && !before.closest('[inert]')) before.focus({preventScroll:true});
-    }
-    // Bound read-only startup/refresh waits. A timeout rejects; it never reports
-    // success or retries a write whose result could still be uncertain.
-    async function wait(promise, {timeoutMs = 60000} = {}) {
-      let timer, rejectWait;
-      const timeout = new Promise((_, reject) => {
-        rejectWait = reject;
-        timer = global.setTimeout(() => reject(new Error('Loading took too long. Check your connection, then try again.')), timeoutMs);
-      });
-      const cancel = () => rejectWait(new Error('Page loading was interrupted.'));
-      pending.add(cancel);
-      try { return await Promise.race([promise, timeout]); }
-      finally { global.clearTimeout(timer); pending.delete(cancel); }
-    }
-    function destroy() {
-      hide();
-      for (const cancel of pending) cancel();
-      global.removeEventListener('pagehide', destroy);
-    }
-    global.addEventListener('pagehide', destroy);
-    return {show, progress, hide, wait, destroy};
-  }
-  function skeleton(label = 'Loading documents…') {
-    const safe = String(label).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    return '<div class="wcs-loading-skeleton" role="status"><span class="sr-only">'+safe+'</span><div aria-hidden="true">'+
-      Array.from({length:3}, () => '<div class="wcs-skeleton-card"><i></i><i></i><i></i></div>').join('')+'</div></div>';
-  }
-  global.WCSLoadingOverlay = {create, skeleton};
-})(window);
-
-/* Runs inline in each page macro, before either attachment script downloads.
- * Uses the existing global stylesheet and hands the same overlay to app.js. */
-(function (global) {
-  'use strict';
-  const target=document.getElementById('wcspedia');
-  if(!target||global.WCSPageBoot)return;
-  const loading=global.WCSLoadingOverlay.create({target});
-  let timer,failed=false,claimed=false;
-  function fail(message){
-    if(failed||claimed)return;
-    failed=true;clearTimeout(timer);loading.destroy();
-    const box=document.createElement('div');box.className='boot-state';box.setAttribute('role','alert');
-    const heading=document.createElement('h1');heading.textContent='WCSpedia could not load';
-    const detail=document.createElement('p');detail.textContent=message;
-    const retry=document.createElement('button');retry.className='button';retry.textContent='Try again';retry.onclick=()=>location.reload();
-    box.append(heading,detail,retry);target.replaceChildren(box);
-  }
-  global.WCSPageBoot={
-    get failed(){return failed;},
-    fail,
-    claim(mount){
-      if(mount!==target)return null;
-      if(failed)throw new Error('Page startup expired. Reload to try again.');
-      claimed=true;clearTimeout(timer);return loading;
-    }
-  };
-  loading.show('Loading WCSpedia…');
-  timer=setTimeout(()=>fail('Page scripts took too long to load. Check your connection and try again.'),60000);
-  global.addEventListener('pagehide',()=>{clearTimeout(timer);loading.hide();});
-  global.addEventListener('pageshow',event=>{if(event.persisted&&!claimed)fail('Page loading was interrupted. Reload to try again.');});
-})(window);
-
 </script>
-<script src="/confluence/download/attachments/3962195316/wcspedia-entitlements.js?api=v2" onerror="window.WCSPageBoot.fail('Could not load wcspedia-entitlements.js. Check the attachment page ID, filename and access.');"></script>
-<script src="/confluence/download/attachments/3962195316/wcspedia-entitlementsHTMLPage.js?api=v2" onerror="window.WCSPageBoot.fail('Could not load wcspedia-entitlementsHTMLPage.js. Check the attachment page ID, filename and access.');"></script>
+<script src="/confluence/download/attachments/3962195316/wcspedia-entitlements.js?api=v2" onerror="document.getElementById('wcspedia').textContent='Could not load wcspedia-entitlements.js. Check the attachment page ID, filename and access.';"></script>
+<script src="/confluence/download/attachments/3962195316/wcspedia-entitlementsHTMLPage.js?api=v2" onerror="document.getElementById('wcspedia').textContent='Could not load wcspedia-entitlementsHTMLPage.js. Check the attachment page ID, filename and access.';"></script>

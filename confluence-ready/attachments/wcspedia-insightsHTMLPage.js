@@ -7,88 +7,20 @@
   'use strict';
   const mount = document.getElementById('wcspedia');
   if (!mount) return;
-  if (window.WCSPageBoot?.failed) return;
   function failPage(message) {
-    if (window.WCSPageBoot) { window.WCSPageBoot.fail(message); return; }
     const box = document.createElement('div');
     box.className = 'boot-state';
     box.setAttribute('role', 'alert');
     box.textContent = message;
     mount.replaceChildren(box);
   }
-  if (document.querySelectorAll('[id="wcspedia"]').length !== 1) {
-    failPage('This page contains more than one WCSpedia application macro. Keep one matching page macro in the page body; do not place an application macro in navBar.');
+  if (mount.getAttribute('data-wcs-page-role') !== 'insights' || !window.WCS_CONFIG || window.WCS_CONFIG.pageRole !== 'insights') {
+    failPage('The WCSpedia JavaScript does not match this HTML macro. Use the wcspedia-insights.html settings and its matching JavaScript pair.');
     return;
   }
-  // Recover from hosts which skip, alter or defer executable inline scripts.
-  // The data attribute is inert JSON: never evaluate code from page markup.
-  if (!mount.wcsPageConfig && mount.hasAttribute('data-wcs-page-settings')) {
-    try {
-      const payload = JSON.parse(mount.getAttribute('data-wcs-page-settings'));
-      if (!payload || !payload.role || !payload.settings || !payload.settings.pageIds) throw new Error('Incomplete settings');
-      /* EDIT SETTINGS HERE — no separate config.js attachment.
- * pageIds.home = numeric pageId from the WCSpedia landing page URL.
- * Do not enter a space ID, space name or space key as pageIds.home.
- * spaceKey = exact Confluence space key, which may differ from "WCSpedia".
- * Leave spaceKey blank to resolve and verify the landing page's actual space.
- * Every search, including Updated year, stays in that space and landing tree.
- * attachmentPageId = the page hosting JS, logos, reader JSON and entitlements.json.
- * Entitlements always read entitlements.json from attachmentPageId.
- * No separate entitlement source, filename or policy-page setting is required.
- * pageIds.entitlements is the interface page, not the policy attachment host.
- * Keep the same IDs in all seven macros; only their page roles differ.
- * Native-session mode uses built-in Confluence APIs; leave legacy services empty.
- */
-(function () {
-  'use strict';
-  var settings = payload.settings;
-  var context = settings.contextPath.replace(/\/+$/, '');
-  var rootPageId = settings.pageIds.home;
-  var attachmentPageId = settings.attachmentPageId || rootPageId;
-  var attachment = function (name) { return context + '/download/attachments/' + encodeURIComponent(attachmentPageId) + '/' + name + '?api=v2'; };
-  var pages = {};
-  Object.keys(settings.pageIds).forEach(function (key) { pages[key] = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.pageIds[key]); });
-  pages.insights = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.insightsPageId);
-  window.WCS_CONFIG = Object.assign({}, settings.services, {
-    mode: 'confluence', authoringMode: settings.authoringMode, contextPath: context, rootPageId: rootPageId,
-    attachmentPageId: attachmentPageId, attachmentFilename: 'wcspedia-published.json',
-    pageRole: payload.role, pages: pages, showConnectionStatus: false, mountGlobalTools: false,
-    brandLogoUrl: attachment('wcspedia-logo.png'),
-    nativePublication: { enabled: true, publishedRootPageId: rootPageId, workingRootPageId: settings.workingRootPageId, areaPageIds: settings.areaPageIds, insightsPageId: settings.insightsPageId, insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'] },
-    search: settings.search, charts: settings.charts,
-    exports: Object.assign({}, settings.exports, { logoUrl: attachment('citi-logo.png'), mdxTemplateUrl: attachment('wcspedia-document.mdx') })
-  });
-  if (settings.spaceKey) window.WCS_CONFIG.spaceKey = settings.spaceKey;
-  var mount = document.getElementById('wcspedia');
-  if (mount) mount.wcsPageConfig = window.WCS_CONFIG;
-})();
-
-    } catch (error) {
-      failPage('WCSpedia page settings could not be read from this HTML macro. Replace its complete contents with html/wcspedia-insights.html from the configured package. Keep live JSON unchanged.');
-      return;
-    }
-  }
-  // The page macro owns its configuration. Shared helpers may assign a global
-  // config while attachments download; they must not change this page's role.
-  const pageConfig = mount.wcsPageConfig || window.WCS_CONFIG;
-  const configuredRole = pageConfig && pageConfig.pageRole;
-  if (!configuredRole) {
-    failPage('WCSpedia page settings are missing. Replace the entire existing HTML macro on this page with html/wcspedia-insights.html from the configured upload package, then publish the page. Uploading attachments does not update a page macro. Keep live JSON unchanged.');
-    return;
-  }
-  const markedRole = mount.getAttribute('data-wcs-page-role');
-  if (configuredRole !== 'insights' || (markedRole && markedRole !== 'insights')) {
-    failPage('The WCSpedia JavaScript does not match this HTML macro. Script role: insights; settings role: ' + (configuredRole || 'missing') + '; HTML marker: ' + (markedRole || 'missing') + '. Use wcspedia-insights.html with wcspedia-insights.js and wcspedia-insightsHTMLPage.js on the same page.');
-    return;
-  }
-  // Older page fragments do not include this optional DOM marker. Recreate it
-  // only after the inline settings agree with this role-specific script. A
-  // conflicting marker/configuration or a mismatched pair still fails closed.
-  if (!markedRole) mount.setAttribute('data-wcs-page-role', 'insights');
-  window.WCS_CONFIG = pageConfig;
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['insights']?.version !== '814dd9396ec3') {
+  if (!window.WCSPageModules || window.WCSPageModules['insights']?.version !== '6460e0560d33') {
     failPage('Load wcspedia-insights.js before wcspedia-insightsHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }
@@ -102,7 +34,7 @@
   // The Confluence host owns page scrolling; never create a second viewport
   // inside the HTML macro or change the existing header's height/overflow.
   root.style.removeProperty('--wcs-available-height');
-  const loading=window.WCSPageBoot?.claim(root)||window.WCSLoadingOverlay.create({target:root});
+  const loading=window.WCSHeaderLoading?.claim(root)||window.WCSPageBoot?.claim(root)||window.WCSLoadingOverlay.create({target:root});
   let startupFinished=false;
   const pageReads=new Set();
   let adapter, session, bootFailed=false;
@@ -132,7 +64,7 @@
   showLoading('Loading WCSpedia…');
   root.replaceChildren();
   try {
-    if(config.pageRole==='faq'){window.WCSFAQ.mount(root,config);loading.hide();return;}
+    if(config.pageRole==='faq'){window.WCSFAQ.mount(root,config);await loading.paint?.();loading.hide();return;}
     if(config.mode==='embedded') session={data:window.WCSData,actorId:'alex',canSubmit:true,mode:'embedded'};
     else { adapter=window.WCSConfluence.create(config); session=await loading.wait(adapter.load({signal:startupController.signal,discoveryOnly:live&&isNativeDiscoveryRoute(),workspaceScope:requestedWorkspaceScope()})); }
     if(!session.data || !Array.isArray(session.data.documents)) throw new Error('The knowledge data could not be loaded.');
@@ -146,7 +78,7 @@
   if(session.actor&&!data.people.some(p=>p.id===session.actorId)) data.people.push(session.actor);
   const canWrite=()=>!live||session.canSubmit;
   const canCreate=()=>canWrite()&&permitted('content.create');
-  const actionsFor=doc=>!doc.publicReader&&canWrite()?workflow.allowedActions(doc,actorId,data.people,permissionContext(doc)).filter(action=>!window.WCSEditorContent.isInsightType(doc.type)||['edit','revise','delete'].includes(action)):[];
+  const actionsFor=doc=>!doc.publicReader&&canWrite()?workflow.allowedActions(doc,actorId,data.people,permissionContext(doc)).filter(action=>!window.WCSEditorContent.isInsightType(doc.type)||['edit','revise','delete','reassign-owner'].includes(action)):[];
   const baseData = clone(data);
   let library=null,libraryStarted=false, exportView=null, editor=null, editorHash='', editorSequence=0, suggestionWidget=null, suggestionInbox=null, chartView=null, chartSummary=null;
   let suggestionTimer=null, suggestionController=null, suggestionSequence=0, childSearchController=null, childSearchSequence=0;
@@ -188,8 +120,8 @@
   const typeUI=window.WCSEditorContent;
   const creationTypes=typeUI.CREATE_TYPES;
   let types = data.types || ['Job aid','Procedure','Blog','Training','Knowledge sharing','Reference'];
-  const labels = {create:'Draft created',edit:'Content updated',submit:'Submitted for review','request-changes':'Changes requested','complete-review':'Review completed',approve:'Approved & published',revise:'New version started',delete:'Document deleted'};
-  const actionLabels = {edit:'Edit draft',submit:'Submit for review','request-changes':'Request changes','complete-review':'Complete review',approve:'Approve & publish',revise:'Edit document',delete:'Delete document'};
+  const labels = {create:'Draft created',edit:'Content updated',submit:'Submitted for review','request-changes':'Changes requested','complete-review':'Review completed',approve:'Approved & published',revise:'New version started',delete:'Document deleted','reassign-owner':'Owner reassigned'};
+  const actionLabels = {edit:'Edit draft',submit:'Submit for review','request-changes':'Request changes','complete-review':'Complete review',approve:'Approve & publish',revise:'Edit document',delete:'Delete document','reassign-owner':'Reassign owner'};
   let workflowDialog=null, entitlementView=null, addDocumentWidget=null;
   let localPolicy=clone(data.entitlementPolicy||null);
   let documents = clone(data.documents), actorId = session.actorId || 'alex', modal = null, savedFocus, memoryOnly = false, focusSearchOnRender = false;
@@ -206,7 +138,7 @@
   function nativeRights(){if(live)return session.nativePermissions||{};const ops=['read','update','delete'].map(operation=>({operation,targetType:'page'}));return {root:[{operation:'create',targetType:'page'}],entitlements:ops,documents:Object.fromEntries(documents.map(doc=>[doc.id,ops]))};}
   function entitlementPolicy(){return live?session.entitlementPolicy:localPolicy;}
   function permitted(permission,doc){return window.WCSEntitlements.effective(entitlementPolicy(),signedIdentity(),permission,{documentKey:doc?.id,native:nativeRights()});}
-  function permissionContext(doc){return {actorId,documentId:doc.id,edit:permitted('content.edit',doc),delete:permitted('content.delete',doc)};}
+  function permissionContext(doc){return {actorId,documentId:doc.id,edit:permitted('content.edit',doc),admin:['entitlements.view','entitlements.add','entitlements.edit','entitlements.revoke'].every(cap=>permitted(cap)),delete:permitted('content.delete',doc)};}
   function readPolicy(){if(live)return;try{const stored=localStorage.getItem(STORE+'.entitlements');if(stored)localPolicy=window.WCSEntitlements.validatePolicy(JSON.parse(stored));}catch(_){localPolicy=null;}}
   readPolicy();
   async function saveEntitlements(command){
@@ -236,6 +168,11 @@
   }
   const area = id => data.areas.find(a => a.id === id);
   const date = at => at && Number.isFinite(Date.parse(at)) ? new Intl.DateTimeFormat('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'Europe/Warsaw'}).format(new Date(at)) : 'Not yet approved';
+  function cardUpdated(at) {
+    if(!at||!Number.isFinite(new Date(at).getTime()))return '<span>Update date unavailable</span>';
+    const instant=new Date(at),label=new Intl.DateTimeFormat('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Warsaw',timeZoneName:'short'}).format(instant);
+    return '<span>Updated <time datetime="'+instant.toISOString()+'" title="Europe/Warsaw">'+esc(label)+'</time></span>';
+  }
   const time = at => !Number.isFinite(Date.parse(at))?'Not recorded':new Intl.DateTimeFormat('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Europe/Warsaw'}).format(new Date(at));
   function icon(name) {
     const paths = {copy:'<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',book:'<path d="M12 5v15M3 4h5a4 4 0 0 1 4 2 4 4 0 0 1 4-2h5v15h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3z"/>',file:'<path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h6"/>',search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',arrow:'<path d="M4 12h16m-6-6 6 6-6 6"/>',chevron:'<path d="m9 5 7 7-7 7"/>',back:'<path d="m15 5-7 7 7 7"/>',plus:'<path d="M12 5v14M5 12h14"/>',check:'<path d="m5 12 4 4L19 6"/>',shield:'<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/><path d="m8 12 3 3 5-6"/>',database:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0"/>',chart:'<path d="M4 3v18h17M8 16v-5m5 5V7m5 9V4"/>',globe:'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',briefcase:'<rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V3h8v4M3 12c5 4 13 4 18 0M12 12v4"/>',grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',edit:'<path d="m15 4 5 5M4 20l5-1L21 7l-5-5L4 14z"/>',download:'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',link:'<path d="m10 13 4-4M8 15l-2 2a4 4 0 0 1-5-5l5-5a4 4 0 0 1 5 0m2 2 2-2a4 4 0 0 1 5 5l-5 5a4 4 0 0 1-5 0"/>',users:'<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M17 5a3 3 0 0 1 0 6m1 4c3 0 4 2 4 6"/>'};
@@ -363,7 +300,7 @@
   function nativeFeaturedCard(item) {
     const type=item.type||'Confluence page',areaName=(item.category==='insights'?'Insights':area(item.category)?.title)||'Wealth Credit Services';
     const media=coverImage(item.documentKey||item.id,item.cover,'feature-cover');
-    return '<article class="featured-document"><a class="feature-media" tabindex="-1" aria-hidden="true" href="'+esc(item.url)+'">'+media+'</a><div class="feature-body"><div class="feature-area">'+esc(typeUI.typeLabel(type))+' · '+esc(areaName)+'</div><h3><a href="'+esc(item.url)+'">'+esc(item.title)+'</a></h3>'+(item.summary?'<p>'+esc(item.summary)+'</p>':'')+'<div class="feature-metrics"><span>By '+esc(item.author||'Author unavailable')+'</span>'+discoveryViews(item)+'</div><div class="feature-bottom"><span>'+(item.updated&&Number.isFinite(Date.parse(item.updated))?'Updated '+date(item.updated):'Update date unavailable')+'</span><a class="circle-link" href="'+esc(item.url)+'" aria-label="Read '+esc(item.title)+'">'+icon('arrow')+'</a></div></div></article>';
+    return '<article class="featured-document"><a class="feature-media" tabindex="-1" aria-hidden="true" href="'+esc(item.url)+'">'+media+'</a><div class="feature-body"><div class="feature-area">'+esc(typeUI.typeLabel(type))+' · '+esc(areaName)+'</div><h3><a href="'+esc(item.url)+'">'+esc(item.title)+'</a></h3>'+(item.summary?'<p>'+esc(item.summary)+'</p>':'')+'<div class="feature-metrics"><span>By '+esc(item.author||'Author unavailable')+'</span>'+discoveryViews(item)+'</div><div class="feature-bottom">'+cardUpdated(item.updated)+'<a class="circle-link" href="'+esc(item.url)+'" aria-label="Read '+esc(item.title)+'">'+icon('arrow')+'</a></div></div></article>';
   }
   function transientReadFailure(error) {
     return ['NETWORK','TIMEOUT','SEARCH_TIMEOUT'].includes(error?.code)||[408,429,500,502,503,504].includes(error?.status);
@@ -442,7 +379,7 @@
     let cover=null;try{if(v.cover)cover=window.WCSEditorContent.validateCover(v.cover);}catch(_){}
     const destination=docUrl(d.id,'content',v.version);
     const media=coverImage(d.id,cover,'feature-cover');
-    return '<article class="featured-document"><a class="feature-media" tabindex="-1" aria-hidden="true" href="'+destination+'">'+media+'</a><div class="feature-body"><div class="feature-area">'+esc(typeUI.typeLabel(d.type))+' · '+esc((v.processes||[])[0]||area(d.area)?.title||'Wealth Credit Services')+'</div><h3><a href="'+destination+'">'+esc(v.title)+'</a></h3><p>'+esc(v.summary)+'</p><div class="feature-metrics"><span>By '+esc(person(d.authorId||v.createdBy).name)+'</span>'+readingMarkup(v)+viewsMarkup(d)+'</div><div class="feature-bottom"><span>Published '+date(v.publishedAt||v.approvedAt||v.createdAt)+'</span><a class="circle-link" href="'+destination+'" aria-label="Read '+esc(v.title)+'">'+icon('arrow')+'</a></div></div></article>';
+    return '<article class="featured-document"><a class="feature-media" tabindex="-1" aria-hidden="true" href="'+destination+'">'+media+'</a><div class="feature-body"><div class="feature-area">'+esc(typeUI.typeLabel(d.type))+' · '+esc((v.processes||[])[0]||area(d.area)?.title||'Wealth Credit Services')+'</div><h3><a href="'+destination+'">'+esc(v.title)+'</a></h3><p>'+esc(v.summary)+'</p><div class="feature-metrics"><span>By '+esc(person(d.authorId||v.createdBy).name)+'</span>'+readingMarkup(v)+viewsMarkup(d)+'</div><div class="feature-bottom"><span>Published '+date(v.publishedAt||v.approvedAt||v.createdAt)+'<br>'+cardUpdated(window.WCSDiscovery.modifiedAt(d,v))+'</span><a class="circle-link" href="'+destination+'" aria-label="Read '+esc(v.title)+'">'+icon('arrow')+'</a></div></div></article>';
   }
   function home() {
     const featured=live?[]:discoverRows({sort:'updated'}).slice(0,3);
@@ -532,7 +469,7 @@
     const taxonomyFilters='<details class="taxonomy-filters" '+([options.tag,options.process,options.region].some(Boolean)?'open':'')+'><summary>Topics, processes & regions</summary><div>'+filter('tag','Topic',taxonomyValues('tags'),options.tag)+filter('process','Process',taxonomyValues('processes'),options.process)+filter('region','Region',taxonomyValues('regions'),options.region)+'</div></details>';
     const chips=[options.tag?{key:'tag',text:options.tag}:null,options.process?{key:'process',text:options.process}:null,options.region?{key:'region',text:options.region}:null,options.area?{key:'area',text:area(options.area)?.title||options.area}:null,options.type?{key:'type',text:options.type}:null,year?{key:'year',text:year}:null].filter(Boolean);
     const title=topic?topic.title:options.view==='mine'?'My workspace':options.query?'Search results':'Explore our knowledge';
-    return '<div class="discovery '+(options.view==='mine'?'workspace-page':'')+'"><section class="press-heading page-panel"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a>'+icon('chevron')+'<span>'+esc(topic?'Business area':options.view==='mine'?'My workspace':'Knowledge library')+'</span></nav><div class="results-title-row"><div><div class="eyebrow">'+(topic?'Business area':'Wealth Credit Services')+'</div><h1>'+esc(title)+'</h1><p>'+esc(topic?topic.description:options.view==='mine'?'Your drafts, submissions, and published knowledge.':'Practical guidance. Shared experience. Knowledge that moves us forward.')+'</p></div>'+'</div></div></section><div class="discovery-container">'+(options.view==='mine'?(library?.tabs('documents')||'')+myWorkspaceSummary(link,status):'')+'<div class="press-search-row">'+bigSearch(options.query,'library')+'<div class="press-filters" aria-label="Search filters"><span class="filter-caption">Filter by</span>'+filter('type','Content type',creationTypes.map(t=>({value:t,label:typeUI.typeLabel(t)})),options.type)+filter('area','Collection',discoveryAreas().map(a=>({value:a.id,label:a.title})),options.area)+filter('year','Year',years.map(y=>({value:y,label:y})),year)+'<a class="reset-link" href="'+link({area:'',type:'',year:'',tag:'',process:'',region:'',status:'',page:1})+'">Reset</a></div></div>'+taxonomyFilters+'<section class="press-results" aria-label="Search results"><div class="discovery-results-toolbar"><p role="status"><strong>'+rows.length+'</strong> '+(rows.length===1?'result':'results')+(options.query?' for <strong>“'+esc(options.query)+'”</strong>':'')+'</p><label>Sort by <select aria-label="Sort results" data-filter="sort"><option value="relevance" '+(options.sort==='relevance'?'selected':'')+'>Most relevant</option><option value="updated" '+(['updated','recent'].includes(options.sort)?'selected':'')+'>Latest approved</option><option value="title" '+(options.sort==='title'?'selected':'')+'>Title A–Z</option>'+[['shortest','Shortest read'],['longest','Longest read'],['most-viewed','Most viewed'],['least-viewed','Least viewed']].filter(([value])=>!nativeMetricsMode||!['most-viewed','least-viewed'].includes(value)).map(([value,label])=>'<option value="'+value+'" '+(options.sort===value?'selected':'')+'>'+label+'</option>').join('')+'</select></label></div>'+(['most-viewed','least-viewed'].includes(options.sort)&&viewStatus!=='ready'?'<p class="metrics-status" role="status">'+(viewStatus==='loading'?'Loading view counts…':'View counts are unavailable. Results with no count appear last; their totals are not treated as zero.')+'</p>':'')+(chips.length?'<div class="discovery-chips">'+chips.map(c=>'<a href="'+link({[c.key]:'',page:1})+'" aria-label="Remove '+esc(c.text)+' filter">'+esc(c.text)+icon('close')+'</a>').join('')+'</div>':'')+(rows.length?(options.view==='mine'?workspaceTable(current):'<div class="press-card-list">'+current.map(row=>resultCard(row,options.query)).join('')+'</div>')+'<div class="discovery-pagination"><span>Showing '+((page-1)*pageSize+1)+'–'+Math.min(page*pageSize,rows.length)+' of '+rows.length+'</span>'+window.WCSPagination.render({totalPages:pages,currentPage:page,href:n=>link({page:n}),ariaLabel:'Document pages'})+'</div>':options.view==='mine'?workspaceTable([]):empty('No matching documents','Try another keyword or remove a filter.','Clear search',link({q:'',area:'',type:'',year:'',tag:'',process:'',region:''})))+'</section>'+(options.view==='mine'?'<div data-suggestion-inbox="mine"></div>':'')+'</div></div>';
+    return '<div class="discovery '+(options.view==='mine'?'workspace-page':'')+'"><section class="press-heading page-panel"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a>'+icon('chevron')+'<span>'+esc(topic?'Business area':options.view==='mine'?'My workspace':'Knowledge library')+'</span></nav><div class="results-title-row"><div><div class="eyebrow">'+(topic?'Business area':'Wealth Credit Services')+'</div><h1>'+esc(title)+'</h1><p>'+esc(topic?topic.description:options.view==='mine'?'Your drafts, submissions, and published knowledge.':'Practical guidance. Shared experience. Knowledge that moves us forward.')+'</p></div>'+'</div></div></section><div class="discovery-container">'+(options.view==='mine'?(library?.tabs('documents')||'')+myWorkspaceSummary(link,status):'')+'<div class="press-search-row">'+bigSearch(options.query,'library')+'<div class="press-filters" aria-label="Search filters"><span class="filter-caption">Filter by</span>'+filter('type','Content type',creationTypes.map(t=>({value:t,label:typeUI.typeLabel(t)})),options.type)+filter('area','Collection',discoveryAreas().map(a=>({value:a.id,label:a.title})),options.area)+filter('year','Year',years.map(y=>({value:y,label:y})),year)+'<a class="reset-link" href="'+link({area:'',type:'',year:'',tag:'',process:'',region:'',status:'',page:1})+'">Reset</a></div></div>'+taxonomyFilters+'<section class="press-results" aria-label="Search results"><div class="discovery-results-toolbar"><p role="status"><strong>'+rows.length+'</strong> '+(rows.length===1?'result':'results')+(options.query?' for <strong>“'+esc(options.query)+'”</strong>':'')+'</p><label>Sort by <select aria-label="Sort results" data-filter="sort"><option value="relevance" '+(options.sort==='relevance'?'selected':'')+'>Most relevant</option><option value="updated" '+(['updated','recent'].includes(options.sort)?'selected':'')+'>Last updated</option><option value="title" '+(options.sort==='title'?'selected':'')+'>Title A–Z</option>'+[['shortest','Shortest read'],['longest','Longest read'],['most-viewed','Most viewed'],['least-viewed','Least viewed']].filter(([value])=>!nativeMetricsMode||!['most-viewed','least-viewed'].includes(value)).map(([value,label])=>'<option value="'+value+'" '+(options.sort===value?'selected':'')+'>'+label+'</option>').join('')+'</select></label></div>'+(['most-viewed','least-viewed'].includes(options.sort)&&viewStatus!=='ready'?'<p class="metrics-status" role="status">'+(viewStatus==='loading'?'Loading view counts…':'View counts are unavailable. Results with no count appear last; their totals are not treated as zero.')+'</p>':'')+(chips.length?'<div class="discovery-chips">'+chips.map(c=>'<a href="'+link({[c.key]:'',page:1})+'" aria-label="Remove '+esc(c.text)+' filter">'+esc(c.text)+icon('close')+'</a>').join('')+'</div>':'')+(rows.length?(options.view==='mine'?workspaceTable(current):'<div class="press-card-list">'+current.map(row=>resultCard(row,options.query)).join('')+'</div>')+'<div class="discovery-pagination"><span>Showing '+((page-1)*pageSize+1)+'–'+Math.min(page*pageSize,rows.length)+' of '+rows.length+'</span>'+window.WCSPagination.render({totalPages:pages,currentPage:page,href:n=>link({page:n}),ariaLabel:'Document pages'})+'</div>':options.view==='mine'?workspaceTable([]):empty('No matching documents','Try another keyword or remove a filter.','Clear search',link({q:'',area:'',type:'',year:'',tag:'',process:'',region:''})))+'</section>'+(options.view==='mine'?'<div data-suggestion-inbox="mine"></div>':'')+'</div></div>';
   }
   function nativeSearchDefaults(){return {scope:'tree',query:'',area:'',type:'',tag:'',process:'',region:'',year:'',sort:'relevance'};}
   function nativeSearchOptions(options=discoveryOptions()) {
@@ -835,7 +772,7 @@
     else if(v.status!=='Published')notice='<div class="version-notice warning">'+icon('clock')+'<span>Working version. '+(published?'Version '+published.version+' remains published.':'This content is not published to readers.')+'</span></div>';
     else if(published&&v.version!==published.version)notice='<div class="version-notice warning">'+icon('clock')+'<span>Historical version. Version '+published.version+' is current.</span><a class="link" href="'+docUrl(doc.id,'content',published.version)+'">Read current version '+icon('arrow')+'</a></div>';
     const related=window.WCSDiscovery.relatedDocuments(documents,doc,v,workflow,3);
-    return '<div class="detail-page insights-page"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a>'+icon('chevron')+'<a href="'+url('/results',{type:doc.type})+'">'+esc(typeUI.typeLabel(doc.type))+'</a>'+icon('chevron')+'<span>'+esc(doc.reference)+'</span></nav><section class="insights-header"><a class="insights-category" href="'+(doc.area==='insights'?url('/insights'):url('/topic/'+doc.area))+'">'+esc(doc.area==='insights'?'Insights':a?.title||'Wealth Credit Services')+'</a><h1>'+esc(v.title)+'</h1><div class="insights-byline"><span>'+esc(typeUI.typeLabel(doc.type))+'</span><span>•</span><span>'+ (v.publishedAt||v.approvedAt?date(v.publishedAt||v.approvedAt):'Draft · '+date(v.createdAt))+'</span><span>•</span>'+readingMarkup(v)+(workflow.publishedVersion(doc)?'<span>•</span>'+viewsMarkup(doc):'')+'</div></section>'+(tab==='content'?articleCover(v,doc):'')+'<div class="article-utility"><div><div class="wcs-status-group">'+badge(v.status)+governanceUI.tag(v,doc)+(library?.tag(doc)||'')+'</div><span>By '+esc(person(doc.authorId).name)+'</span><span>Version '+v.version+' · revision '+v.revision+'</span></div><div class="heading-actions">'+(library?.bookmarkButton(doc)||'')+'<button class="button secondary compact" data-action="copy">'+icon('link')+'Copy link</button><button class="button secondary compact" data-action="copy-markdown">'+icon('file')+'Copy Markdown</button><button type="button" class="button secondary compact" data-wcs-export aria-haspopup="menu" aria-expanded="false">'+icon('download')+'Download</button>'+(action?'<button class="button secondary compact document-edit-action" data-action="'+action+'">'+icon('edit')+actionLabels[action]+'</button>':'')+(actionsFor(doc).includes('delete')?'<button class="button danger compact document-delete-action" data-action="delete">Delete document</button>':'')+'</div></div>'+notice+'<nav class="tabs" aria-label="Document sections">'+[['content','Article'],['health','Content health'],['versions','Version history'],...(managed?[['audit','Audit trail']]:[])].map(([key,label])=>'<a class="'+(tab===key?'active':'')+'" '+(tab===key?'aria-current="page"':'')+' href="'+docUrl(doc.id,key,v.version)+'">'+label+'</a>').join('')+'</nav><div class="detail-layout"><div class="detail-main">'+({content:()=>contentView(doc,v),versions:()=>versionsView(doc),audit:()=>auditView(doc),health:()=>'<div data-content-health="'+esc(doc.id)+'"></div>'}[tab])()+'</div>'+controls(doc,v)+'</div>'+(tab==='content'&&related.length?'<section class="insights-related"><div class="related-heading"><h2>Keep your knowledge growing.</h2><p>Related training, articles, and practical guidance.</p></div><div class="featured-grid">'+related.map(featuredCard).join('')+'</div></section>':'')+'</div></div>';
+    return '<div class="detail-page insights-page"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a>'+icon('chevron')+'<a href="'+url('/results',{type:doc.type})+'">'+esc(typeUI.typeLabel(doc.type))+'</a>'+icon('chevron')+'<span>'+esc(doc.reference)+'</span></nav><section class="insights-header"><a class="insights-category" href="'+(doc.area==='insights'?url('/insights'):url('/topic/'+doc.area))+'">'+esc(doc.area==='insights'?'Insights':a?.title||'Wealth Credit Services')+'</a><h1>'+esc(v.title)+'</h1><div class="insights-byline"><span>'+esc(typeUI.typeLabel(doc.type))+'</span><span>•</span><span>'+ (v.publishedAt||v.approvedAt?date(v.publishedAt||v.approvedAt):'Draft · '+date(v.createdAt))+'</span><span>•</span>'+readingMarkup(v)+(workflow.publishedVersion(doc)?'<span>•</span>'+viewsMarkup(doc):'')+'</div></section>'+(tab==='content'?articleCover(v,doc):'')+'<div class="article-utility"><div><div class="wcs-status-group">'+badge(v.status)+governanceUI.tag(v,doc)+(library?.tag(doc)||'')+'</div><span>By '+esc(person(doc.authorId).name)+'</span><span>Version '+v.version+' · revision '+v.revision+'</span></div><div class="heading-actions">'+(library?.bookmarkButton(doc)||'')+'<button class="button secondary compact" data-action="copy">'+icon('link')+'Copy link</button><button class="button secondary compact" data-action="copy-markdown">'+icon('file')+'Copy Markdown</button><button type="button" class="button secondary compact" data-wcs-export aria-haspopup="menu" aria-expanded="false">'+icon('download')+'Download</button>'+(action?'<button class="button secondary compact document-edit-action" data-action="'+action+'">'+icon('edit')+actionLabels[action]+'</button>':'')+(actionsFor(doc).includes('reassign-owner')?'<button class="button secondary compact" data-action="reassign-owner">Reassign owner</button>':'')+(actionsFor(doc).includes('delete')?'<button class="button danger compact document-delete-action" data-action="delete">Delete document</button>':'')+'</div></div>'+notice+'<nav class="tabs" aria-label="Document sections">'+[['content','Article'],['health','Content health'],['versions','Version history'],...(managed?[['audit','Audit trail']]:[])].map(([key,label])=>'<a class="'+(tab===key?'active':'')+'" '+(tab===key?'aria-current="page"':'')+' href="'+docUrl(doc.id,key,v.version)+'">'+label+'</a>').join('')+'</nav><div class="detail-layout"><div class="detail-main">'+({content:()=>contentView(doc,v),versions:()=>versionsView(doc),audit:()=>auditView(doc),health:()=>'<div data-content-health="'+esc(doc.id)+'"></div>'}[tab])()+'</div>'+controls(doc,v)+'</div>'+(tab==='content'&&related.length?'<section class="insights-related"><div class="related-heading"><h2>Keep your knowledge growing.</h2><p>Related training, articles, and practical guidance.</p></div><div class="featured-grid">'+related.map(featuredCard).join('')+'</div></section>':'')+'</div></div>';
   }
   function sections(v) { if(v.bodyMarkdown)return '<div class="markdown-body">'+window.WCSEditorContent.render(v.bodyMarkdown,v)+'</div>';return v.sections.map(s=>'<section class="section" id="section-'+esc(s.id)+'"><h2>'+esc(s.title)+'</h2>'+s.paragraphs.map(p=>'<p>'+esc(p)+'</p>').join('')+(s.bullets.length?'<ul>'+s.bullets.map(b=>'<li>'+esc(b)+'</li>').join('')+'</ul>':'')+'</section>').join(''); }
   function taxonomyView(doc,v) {
@@ -1036,8 +973,9 @@
     savedFocus=document.activeElement;
     modal={returnAfterDelete:window.WCSNavigation.afterDelete(config,location.hash,lastListHash),hash:location.hash,url:location.href,action,docId:doc.id,actorId,expectedVersion:v.version,expectedRevision:v.revision,expectedAuditLength:doc.audit.length};
     const title=actionLabels[action],description=v.title+' · v'+v.version+' / revision '+v.revision;
-    const desc={submit:'Send this revision to '+person(doc.reviewerId).name+' for content review. It will remain unavailable to readers until approved.','complete-review':'Confirm you have reviewed this exact revision. This records your review and moves it to manager approval.',approve:'Approve the reviewed revision and publish it now. Any previous approved version remains in the history.','request-changes':'Return this version to the author with clear feedback. It will need review again.',revise:'Create an editable draft from the approved content. The current approved version stays available to readers.',delete:'Delete this entire document from the knowledge library. Its versions and deletion record remain in the restricted audit history.'+(live?' The linked page will be moved to Confluence trash.':' This prototype only changes the local sample data.')};
+    const desc={'reassign-owner':'Transfer responsibility to another active author or manager. The original author and approval history stay recorded. Existing Confluence permissions and JSON grants still apply.',submit:'Send this revision to '+person(doc.reviewerId).name+' for content review. It will remain unavailable to readers until approved.','complete-review':'Confirm you have reviewed this exact revision. This records your review and moves it to manager approval.',approve:'Approve the reviewed revision and publish it now. Any previous approved version remains in the history.','request-changes':'Return this version to the author with clear feedback. It will need review again.',revise:'Create an editable draft from the approved content. The current approved version stays available to readers.',delete:'Delete this entire document from the knowledge library. Its versions and deletion record remain in the restricted audit history.'+(live?' The linked page will be moved to Confluence trash.':' This prototype only changes the local sample data.')};
     let fields='<div class="modal-summary">'+esc(desc[action])+'</div>';
+    if(action==='reassign-owner')fields+='<label for="owner-id">New document owner</label><select id="owner-id" name="owner-id" required><option value="">Choose an owner</option>'+data.people.filter(p=>p.id!==doc.ownerId&&p.active!==false&&['Author','Manager'].includes(p.role)).map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+' ('+esc(p.soeid||p.id)+')</option>').join('')+'</select>';
     if(action==='approve'){const next=governance.nextReviewDate(new Date().toISOString());const min=new Date();min.setUTCDate(min.getUTCDate()+1);fields+=field('next-review','Next business review target',next,'input','type="date" required min="'+min.toISOString().slice(0,10)+'" max="'+next+'"')+'<p class="quiet-note">Business best practice: review within 24 calendar months, and sooner when sources, processes or responsibilities change. This does not create a mandatory policy review cycle.</p>';}
     if(action==='submit')fields+=governanceUI.findings(doc,v);
     if(action==='complete-review')fields+=governanceUI.reviewForm(doc,v);
@@ -1057,14 +995,15 @@
       if(m.action==='delete'&&text('delete-key')!==doc.id)throw Error('Enter the exact document key to confirm deletion.');
       if(!actionsFor(doc).includes(m.action))throw Error('Your permission or this document status changed. Reload before continuing.');
       const options={actorId,people:data.people,now,requireGovernance:true,permissionContext:permissionContext(doc),actorSOEID:signedIdentity()?.soeid,comment:text('action-comment'),expectedVersion:m.expectedVersion,expectedRevision:m.expectedRevision,expectedAuditLength:m.expectedAuditLength};
+      if(m.action==='reassign-owner')options.ownerId=text('owner-id');
       if(m.action==='approve'){options.effectiveAt=now;options.nextReviewAt=text('next-review');}
       if(m.action==='complete-review')options.governanceReview=governanceUI.readReview(f,{...workflow.currentVersion(doc),version:m.expectedVersion,revision:m.expectedRevision});
       let result=workflow.transition(doc,m.action,options);
-      const command={action:m.action,docId:m.docId,comment:options.comment,expectedVersion:m.expectedVersion,expectedRevision:m.expectedRevision,expectedAuditLength:m.expectedAuditLength,nextReviewAt:options.nextReviewAt,...(options.governanceReview?{governanceReview:options.governanceReview}:{})};
+      const command={action:m.action,docId:m.docId,comment:options.comment,expectedVersion:m.expectedVersion,expectedRevision:m.expectedRevision,expectedAuditLength:m.expectedAuditLength,nextReviewAt:options.nextReviewAt,...(options.ownerId?{ownerId:options.ownerId}:{}),...(options.governanceReview?{governanceReview:options.governanceReview}:{})};
       let persisted=true;
       if(live){session=await (m.action==='delete'?adapter.deleteDocument:adapter.submitAction)(Object.assign(command,{expectedAttachmentVersion:session.attachmentVersion}));data=session.data;documents=clone(data.documents);actorId=session.actorId;result=documents.find(d=>d.id===result.id);if(!result&&m.action!=='delete')throw Error('The action was accepted but this document is no longer visible. Reload the workspace.');}
       else {const index=documents.findIndex(d=>d.id===result.id);documents[index]=result;persisted=persist();}
-      m.saving=false;workflowDialog?.setBusy(false);closeModal();if(m.action==='delete')clearNativeBrowse();history.replaceState(null,'',m.action==='delete'?m.returnAfterDelete:url('/review/'+result.id));render();loadViewCounts();
+      m.saving=false;workflowDialog?.setBusy(false);closeModal();if(m.action==='delete')clearNativeBrowse();history.replaceState(null,'',m.action==='delete'?m.returnAfterDelete:m.action==='reassign-owner'?m.hash:url('/review/'+result.id));render();loadViewCounts();
       toast(labels[m.action]+(persisted?' · audit event recorded.':' · saved in memory only; browser storage unavailable.'),{type:persisted?'success':'warning'});
     } catch(error) {
       toast(error.message,{type:'error'});m.saving=false;workflowDialog?.setBusy(false);m.reloadOnClose=true;const box=root.querySelector('#form-error');box.hidden=false;box.textContent=error.message;

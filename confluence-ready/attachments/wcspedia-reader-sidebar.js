@@ -3,6 +3,7 @@
 (function (w,d) {
   'use strict';
   if(w.WCSReaderSidebar)return;
+  var defaultedHosts=new WeakSet();
   var host=null,observer=null,resizeObserver=null,queued=false,destroyed=false,revealOwned=false;
   var compactPaths=new Set(),compactLinks=new Set(),tooltip=null,tooltipLink=null,previousDescription=null;
   var links=new Map(),checks=new Map(),pending=[],running=0,generation=0,controllers=new Set(),leafMarkers=new Set(),treeRows=new Set(),collections=new Set();
@@ -139,6 +140,16 @@
     compact=compact&&Array.from(compactLinks).some(function(a){return host.contains(a);});
     if(host.getAttribute('data-wcs-native-compact')!==String(compact)){host.setAttribute('data-wcs-native-compact',String(compact));hideTooltip();}
   }
+  function defaultCollapsed(){
+    if(!host||defaultedHosts.has(host))return;
+    if(host.getAttribute('data-wcs-native-compact')==='true'){defaultedHosts.add(host);return;}
+    var toggle=host.querySelector('.ia-toggle-button,.acs-side-bar-toggle,[aria-label="Collapse sidebar"],[title="Collapse sidebar"]');
+    if(!toggle||toggle.disabled)return;
+    defaultedHosts.add(host);
+    // Invoke the existing native control. Its own handler owns widths, offsets
+    // and stored preferences. Never re-collapse after the reader expands it.
+    toggle.click();compactState();
+  }
   function attachHost(){
     host.addEventListener('mouseover',showTooltip);host.addEventListener('focusin',showTooltip);host.addEventListener('mouseout',leaveTooltip);host.addEventListener('focusout',leaveTooltip);
     if(w.ResizeObserver){resizeObserver=new w.ResizeObserver(compactState);resizeObserver.observe(host);}
@@ -172,7 +183,7 @@
     // Let the theme restore its own sidebar/content layout. Native collapsed
     // classes and preferences remain entirely under Confluence's control.
     if(d.body.classList.contains('citi-hide-sidebar')){revealOwned=true;d.body.classList.remove('citi-hide-sidebar');}
-    enhance();compactState();
+    enhance();compactState();defaultCollapsed();
   }
   function schedule(){if(!queued){queued=true;Promise.resolve().then(function(){queued=false;refresh();});}}
   function start(){

@@ -1265,7 +1265,7 @@
   --wcs-loading-logo: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDQiIGhlaWdodD0iMTE4IiB2aWV3Qm94PSIwIDAgMjA0IDExOCIgZmlsbD0ibm9uZSI+CjxwYXRoIGQ9Ik0wLjk0Nzc1NCA3OS45NjY4QzAuOTQ3NzU0IDU4Ljk3MzIgMTguMTA5NiA0Mi42MjkyIDQwLjQ3NjMgNDIuNjI5MkM1My40MTggNDIuNjI5MiA2NS4yMzQ0IDQ4LjQwNTkgNzEuOTg2NiA1Ny4xNDE1TDYyLjI4MDMgNjYuODYzNEM1OS43MDU3IDYzLjU2MTggNTYuNDIwOCA2MC44ODQzIDUyLjY3MDEgNTkuMDMwM0M0OC45MTkzIDU3LjE3NjMgNDQuNzk5NCA1Ni4xOTM2IDQwLjYxNjkgNTYuMTU1M0MyNy4yNTMyIDU2LjE1NTMgMTYuNTYyMiA2Ni4xNTg5IDE2LjU2MjIgNzkuOTY2OEMxNi41NjIyIDkzLjkxNTUgMjcuMjUzMiAxMDMuOTE5IDQwLjYxNjkgMTAzLjkxOUM0NC45NDkgMTAzLjkxNCA0OS4yMjE0IDEwMi45MDcgNTMuMTAxIDEwMC45NzZDNTYuOTgwNiA5OS4wNDUyIDYwLjM2MjcgOTYuMjQzMiA2Mi45ODM2IDkyLjc4ODRMNzIuNTQ5MiAxMDIuMjI4QzY2LjA3ODQgMTExLjM4NyA1My42OTkzIDExNy40NDUgNDAuNDc2MyAxMTcuNDQ1QzE4LjEwOTYgMTE3LjQ0NSAwLjk0Nzc1NCAxMDEuMTAxIDAuOTQ3NzU0IDc5Ljk2NjhaIiBmaWxsPSIjMjU1QkUzIi8+CjxwYXRoIGQ9Ik04NS4yMDk1IDQ1LjE2NTNIMTAwLjU0M1YxMTQuOTA5SDg1LjIwOTVWNDUuMTY1M1oiIGZpbGw9IiMyNTVCRTMiLz4KPHBhdGggZD0iTTEyOS4wOTkgOTYuMTY5OFY1OC4xMjc4SDExMi4zNTlWNDUuMTY1M0gxMjkuODAzVjMwLjIzMDJMMTQ0LjE1MSAyMy4xODU0VjQ1LjE2NTNIMTY2Ljk0VjU4LjEyNzhIMTQ0LjE1MVY5My42MzM3QzE0NC4xNTEgMTAwLjY3OSAxNDguMDkgMTAzLjc3OCAxNTUuNTQ1IDEwMy43NzhDMTU5LjQyNSAxMDMuNzk4IDE2My4yNjMgMTAyLjk4MSAxNjYuNzk5IDEwMS4zODNWMTE0LjYyN0MxNjIuMzY5IDExNi41NzQgMTU3LjU2OSAxMTcuNTM2IDE1Mi43MzIgMTE3LjQ0NUMxMzkuMDg3IDExNy40NDUgMTI5LjA5OSAxMDkuOTc4IDEyOS4wOTkgOTYuMTY5OFoiIGZpbGw9IiMyNTVCRTMiLz4KPHBhdGggZD0iTTE3OS4wMzcgNDUuMTY1M0gxOTQuMzdWMTE0LjkwOUgxNzkuMDM3VjQ1LjE2NTNaIiBmaWxsPSIjMjU1QkUzIi8+CjxwYXRoIGQ9Ik0xMzkuNjQ4IDAuNzgyODMyQzE1Mi4yNDEgMC43NTI3MyAxNjQuNjU3IDMuNzU4MzEgMTc1Ljg0NiA5LjU0NTc1QzE4Ny4wMzUgMTUuMzMzMiAxOTYuNjY5IDIzLjczMjUgMjAzLjkzNSAzNC4wMzQ0SDE4Ni4wN0MxODAuMjE0IDI3LjUxNTQgMTczLjA1NSAyMi4zMDI2IDE2NS4wNTggMTguNzM0M0MxNTcuMDYxIDE1LjE2NiAxNDguNDAzIDEzLjMyMjEgMTM5LjY0OCAxMy4zMjIxQzEzMC44OTMgMTMuMzIyMSAxMjIuMjM2IDE1LjE2NiAxMTQuMjM5IDE4LjczNDNDMTA2LjI0MiAyMi4zMDI2IDk5LjA4MjcgMjcuNTE1NCA5My4yMjcgMzQuMDM0NEg3NS4zNjE4QzgyLjYyNzcgMjMuNzMyNSA5Mi4yNjIxIDE1LjMzMzIgMTAzLjQ1MSA5LjU0NTc1QzExNC42NCAzLjc1ODMxIDEyNy4wNTUgMC43NTI3MyAxMzkuNjQ4IDAuNzgyODMyVjAuNzgyODMyWiIgZmlsbD0iI0ZGM0MyOCIvPgo8L3N2Zz4=");
   position: fixed;
   inset: 0;
-  z-index: 10000;
+  z-index: 2147483000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1274,7 +1274,8 @@
   overflow: auto;
   overscroll-behavior: contain;
   isolation: isolate;
-  background: var(--ds-background-neutral,var(--wcs-theme-subtle,#f3f4f6));
+  background-color: var(--wcs-theme-surface,#f3f5f8);
+  background-image: radial-gradient(ellipse at center, transparent, #071b3230);
   color: var(--ds-text,var(--wcs-theme-text,#17355f));
   font-family:inherit;
   text-align: center;
@@ -1293,7 +1294,7 @@
   padding: 30px;
   border-radius: 10px;
   background: var(--ds-surface,var(--wcs-theme-surface,#fff));
-  box-shadow: 2px 2px 10px -5px #c6cbd2;
+  box-shadow: 0 24px 80px #071b3240;
 }
 .wcs-loading-overlay .wcs-loading-logo { width: 112px; height: 65px; margin: 0 auto 24px; }
 .wcs-loading-overlay .wcs-loading-title { margin: 0 0 8px; font-size: 22px; line-height: 1.3; font-weight: 400; color: var(--ds-text,var(--wcs-theme-text,#17355f)); }
@@ -1504,6 +1505,10 @@ body[data-wcs-reader-nav=native] .wcs-native-sidebar-tooltip{position:fixed;z-in
 
 body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=true] a[data-wcs-current-collection=true]{background:var(--wcs-action-bg,#255be3)!important;color:#fff!important}
 
+/* Give every revealed ancestor the full native rail width so auto margins
+   center icons within the rail, rather than an inline/shrink-to-fit span. */
+body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=true] .wcs-native-compact-path{display:flex!important;flex-direction:column!important;align-items:stretch!important;box-sizing:border-box!important;width:100%!important;float:none!important}
+
 /* Follow the host's Data Center design tokens; never change its theme choice.
    Fallbacks cover data-color-mode hosts whose token stylesheet loads later.
    Original/light mode retains each component's existing Citi fallback colour. */
@@ -1543,15 +1548,19 @@ body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=
 #wcspedia .highcharts-grid-line { stroke:var(--ds-border,var(--wcs-theme-border,#dce4ec))!important; }
 
 /* Compact landing and help layouts. Included in the one shared stylesheet. */
-#wcspedia .wcs-home>.discovery-container{max-width:1080px!important}
+#wcspedia .wcs-home .discovery-hero{text-align:center!important}
+#wcspedia .wcs-home .discovery-brand{justify-content:center!important;margin-inline:auto!important}
+#wcspedia .wcs-home .discovery-search-wrap{margin-inline:auto!important}
+#wcspedia .wcs-home>.discovery-container{max-width:none!important;padding-inline:0}
 #wcspedia .wcs-home .featured-section{padding:24px 0 40px;margin:0}
-#wcspedia .wcs-home .discovery-section-heading{margin-bottom:20px;align-items:center}
+#wcspedia .wcs-home .discovery-section-heading{display:flex;text-align:left;margin-bottom:20px;align-items:center;justify-content:space-between;position:relative;gap:16px;flex-wrap:nowrap}
+#wcspedia .wcs-home .discovery-section-heading>a{margin-inline-start:auto;flex-shrink:0;white-space:nowrap}
 #wcspedia .wcs-home .discovery-section-heading h2{font-size:24px;font-weight:400;margin:0;letter-spacing:-.4px}
-#wcspedia .wcs-home .featured-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
-#wcspedia .wcs-home .featured-document{min-height:0;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--ds-surface,var(--wcs-theme-surface,#fff));display:flex;flex-direction:column}
-#wcspedia .wcs-home .feature-media,#wcspedia .wcs-home .feature-cover{border-radius:0}
-#wcspedia .wcs-home .feature-cover{width:100%;height:auto;aspect-ratio:2;object-fit:cover}
-#wcspedia .wcs-home .feature-body{padding:18px;flex:1;display:flex;flex-direction:column;min-width:0}
+#wcspedia .wcs-home .featured-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:32px clamp(24px,4vw,56px);align-items:start}
+#wcspedia .wcs-home .featured-document{min-height:0;border:0;border-radius:0;overflow:visible;background:transparent;display:flex;flex-direction:column}
+#wcspedia .wcs-home .feature-media,#wcspedia .wcs-home .feature-cover{border-radius:20px;overflow:hidden}
+#wcspedia .wcs-home .feature-cover{width:100%;height:auto;aspect-ratio:1.55;object-fit:cover}
+#wcspedia .wcs-home .feature-body{padding:20px 4px 8px;flex:1;display:flex;flex-direction:column;min-width:0}
 #wcspedia .wcs-home .feature-area{font-size:10px;margin-bottom:10px;color:var(--muted)}
 #wcspedia .wcs-home .featured-document h3{font-size:20px;line-height:1.35;margin:0 0 10px;letter-spacing:-.2px}
 #wcspedia .wcs-home .featured-document h3 a{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}

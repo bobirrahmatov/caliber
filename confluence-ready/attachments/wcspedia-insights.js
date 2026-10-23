@@ -7,231 +7,17 @@
   'use strict';
   const mount = document.getElementById('wcspedia');
   if (!mount) return;
-  if (window.WCSPageBoot?.failed) return;
   function failPage(message) {
-    if (window.WCSPageBoot) { window.WCSPageBoot.fail(message); return; }
     const box = document.createElement('div');
     box.className = 'boot-state';
     box.setAttribute('role', 'alert');
     box.textContent = message;
     mount.replaceChildren(box);
   }
-  if (document.querySelectorAll('[id="wcspedia"]').length !== 1) {
-    failPage('This page contains more than one WCSpedia application macro. Keep one matching page macro in the page body; do not place an application macro in navBar.');
+  if (mount.getAttribute('data-wcs-page-role') !== 'insights' || !window.WCS_CONFIG || window.WCS_CONFIG.pageRole !== 'insights') {
+    failPage('The WCSpedia JavaScript does not match this HTML macro. Use the wcspedia-insights.html settings and its matching JavaScript pair.');
     return;
   }
-  // Recover from hosts which skip, alter or defer executable inline scripts.
-  // The data attribute is inert JSON: never evaluate code from page markup.
-  if (!mount.wcsPageConfig && mount.hasAttribute('data-wcs-page-settings')) {
-    try {
-      const payload = JSON.parse(mount.getAttribute('data-wcs-page-settings'));
-      if (!payload || !payload.role || !payload.settings || !payload.settings.pageIds) throw new Error('Incomplete settings');
-      /* EDIT SETTINGS HERE — no separate config.js attachment.
- * pageIds.home = numeric pageId from the WCSpedia landing page URL.
- * Do not enter a space ID, space name or space key as pageIds.home.
- * spaceKey = exact Confluence space key, which may differ from "WCSpedia".
- * Leave spaceKey blank to resolve and verify the landing page's actual space.
- * Every search, including Updated year, stays in that space and landing tree.
- * attachmentPageId = the page hosting JS, logos, reader JSON and entitlements.json.
- * Entitlements always read entitlements.json from attachmentPageId.
- * No separate entitlement source, filename or policy-page setting is required.
- * pageIds.entitlements is the interface page, not the policy attachment host.
- * Keep the same IDs in all seven macros; only their page roles differ.
- * Native-session mode uses built-in Confluence APIs; leave legacy services empty.
- */
-(function () {
-  'use strict';
-  var settings = payload.settings;
-  var context = settings.contextPath.replace(/\/+$/, '');
-  var rootPageId = settings.pageIds.home;
-  var attachmentPageId = settings.attachmentPageId || rootPageId;
-  var attachment = function (name) { return context + '/download/attachments/' + encodeURIComponent(attachmentPageId) + '/' + name + '?api=v2'; };
-  var pages = {};
-  Object.keys(settings.pageIds).forEach(function (key) { pages[key] = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.pageIds[key]); });
-  pages.insights = context + '/pages/viewpage.action?pageId=' + encodeURIComponent(settings.insightsPageId);
-  window.WCS_CONFIG = Object.assign({}, settings.services, {
-    mode: 'confluence', authoringMode: settings.authoringMode, contextPath: context, rootPageId: rootPageId,
-    attachmentPageId: attachmentPageId, attachmentFilename: 'wcspedia-published.json',
-    pageRole: payload.role, pages: pages, showConnectionStatus: false, mountGlobalTools: false,
-    brandLogoUrl: attachment('wcspedia-logo.png'),
-    nativePublication: { enabled: true, publishedRootPageId: rootPageId, workingRootPageId: settings.workingRootPageId, areaPageIds: settings.areaPageIds, insightsPageId: settings.insightsPageId, insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'] },
-    search: settings.search, charts: settings.charts,
-    exports: Object.assign({}, settings.exports, { logoUrl: attachment('citi-logo.png'), mdxTemplateUrl: attachment('wcspedia-document.mdx') })
-  });
-  if (settings.spaceKey) window.WCS_CONFIG.spaceKey = settings.spaceKey;
-  var mount = document.getElementById('wcspedia');
-  if (mount) mount.wcsPageConfig = window.WCS_CONFIG;
-})();
-
-    } catch (error) {
-      failPage('WCSpedia page settings could not be read from this HTML macro. Replace its complete contents with html/wcspedia-insights.html from the configured package. Keep live JSON unchanged.');
-      return;
-    }
-  }
-  // The page macro owns its configuration. Shared helpers may assign a global
-  // config while attachments download; they must not change this page's role.
-  const pageConfig = mount.wcsPageConfig || window.WCS_CONFIG;
-  const configuredRole = pageConfig && pageConfig.pageRole;
-  if (!configuredRole) {
-    failPage('WCSpedia page settings are missing. Replace the entire existing HTML macro on this page with html/wcspedia-insights.html from the configured upload package, then publish the page. Uploading attachments does not update a page macro. Keep live JSON unchanged.');
-    return;
-  }
-  const markedRole = mount.getAttribute('data-wcs-page-role');
-  if (configuredRole !== 'insights' || (markedRole && markedRole !== 'insights')) {
-    failPage('The WCSpedia JavaScript does not match this HTML macro. Script role: insights; settings role: ' + (configuredRole || 'missing') + '; HTML marker: ' + (markedRole || 'missing') + '. Use wcspedia-insights.html with wcspedia-insights.js and wcspedia-insightsHTMLPage.js on the same page.');
-    return;
-  }
-  // Older page fragments do not include this optional DOM marker. Recreate it
-  // only after the inline settings agree with this role-specific script. A
-  // conflicting marker/configuration or a mismatched pair still fails closed.
-  if (!markedRole) mount.setAttribute('data-wcs-page-role', 'insights');
-  window.WCS_CONFIG = pageConfig;
-
-  // Reuse inline boot when available; otherwise start it from this attachment.
-/* Shared WCSpedia loading layer. Based on the Covenants overlay and the
- * progress track in wealth/Old/sampleoverlay.html; no external libraries. */
-(function (global) {
-  'use strict';
-  // A shared Confluence header may load this before the page's full bundle.
-  // Keep one API and ID sequence when the same component is included again.
-  if (global.WCSLoadingOverlay && typeof global.WCSLoadingOverlay.create === 'function' && typeof global.WCSLoadingOverlay.skeleton === 'function') return;
-  let sequence = 0;
-  function create({target, delayMs = 0}) {
-    const doc = target.ownerDocument, pending = new Set();
-    let overlay, message, bar, before, attributes, overflow, showTimer = null, queuedProgress = null;
-    function show(text = 'Loading WCSpedia…') {
-      if (!overlay && delayMs > 0) {
-        if (showTimer === null) showTimer = global.setTimeout(() => { showTimer = null; display(text); }, delayMs);
-        return;
-      }
-      display(text);
-    }
-    function display(text) {
-      if (!overlay) {
-        const id = 'wcs-loading-message-' + (++sequence);
-        before = doc.activeElement;
-        attributes = {busy:target.getAttribute('aria-busy'), inert:target.getAttribute('inert')};
-        overflow = doc.body.style.overflow;
-        target.setAttribute('aria-busy', 'true');
-        target.setAttribute('inert', '');
-        doc.body.style.overflow = 'hidden';
-        overlay = doc.createElement('div');
-        overlay.className = 'wcs-loading-overlay';
-        overlay.setAttribute('role', 'dialog');
-        overlay.setAttribute('aria-modal', 'true');
-        overlay.setAttribute('aria-labelledby', id);
-        overlay.tabIndex = -1;
-        overlay.innerHTML = '<div class="wcs-loading-panel"><div class="wcs-loading-logo" role="img" aria-label="Citi"></div>' +
-          '<p class="wcs-loading-title">WCSpedia</p>' +
-          '<p class="wcs-loading-message" id="' + id + '" role="status" aria-live="polite" aria-atomic="true"></p>' +
-          '<div class="wcs-loading-track" role="progressbar" aria-label="Page loading progress"><div class="wcs-loading-fill"></div></div></div>';
-        message = overlay.querySelector('.wcs-loading-message');
-        bar = overlay.querySelector('.wcs-loading-track');
-        doc.body.append(overlay);
-        doc.addEventListener('keydown', keepFocus, true);
-        overlay.focus({preventScroll:true});
-      }
-      overlay.classList.add('is-indeterminate');
-      bar.removeAttribute('aria-valuenow');
-      bar.removeAttribute('aria-valuemin');
-      bar.removeAttribute('aria-valuemax');
-      message.textContent = text;
-      bar.setAttribute('aria-valuetext', text);
-      if (queuedProgress) { const step = queuedProgress; queuedProgress = null; progress(...step); }
-    }
-    function keepFocus(event) {
-      if (event.key === 'Tab' && overlay) {
-        event.preventDefault();
-        event.stopPropagation();
-        overlay.focus({preventScroll:true});
-      }
-    }
-    // Progress counts completed loading steps, never fabricated network bytes.
-    function progress(completed, total, text) {
-      if (!overlay && showTimer !== null) { queuedProgress = [completed, total, text]; return; }
-      if (!overlay || !Number.isFinite(completed) || !Number.isFinite(total) || total <= 0) return;
-      const value = Math.max(0, Math.min(total, completed));
-      overlay.classList.remove('is-indeterminate');
-      overlay.style.setProperty('--wcs-loading-progress', (value / total * 100) + '%');
-      bar.setAttribute('aria-valuemin', '0');
-      bar.setAttribute('aria-valuemax', String(total));
-      bar.setAttribute('aria-valuenow', String(value));
-      if (text) message.textContent = text;
-      bar.setAttribute('aria-valuetext', value + ' of ' + total + ' loading steps complete. ' + message.textContent);
-    }
-    function hide() {
-      queuedProgress = null;
-      if (showTimer !== null) { global.clearTimeout(showTimer); showTimer = null; }
-      if (!overlay) return;
-      const restoreFocus = doc.activeElement === overlay || overlay.contains(doc.activeElement);
-      overlay.remove(); overlay = null;
-      doc.removeEventListener('keydown', keepFocus, true);
-      for (const [name, previous] of [['aria-busy', attributes.busy], ['inert', attributes.inert]]) {
-        if (previous == null) target.removeAttribute(name); else target.setAttribute(name, previous);
-      }
-      if (doc.body.style.overflow === 'hidden') doc.body.style.overflow = overflow;
-      if (restoreFocus && before?.isConnected && !before.closest('[inert]')) before.focus({preventScroll:true});
-    }
-    // Bound read-only startup/refresh waits. A timeout rejects; it never reports
-    // success or retries a write whose result could still be uncertain.
-    async function wait(promise, {timeoutMs = 60000} = {}) {
-      let timer, rejectWait;
-      const timeout = new Promise((_, reject) => {
-        rejectWait = reject;
-        timer = global.setTimeout(() => reject(new Error('Loading took too long. Check your connection, then try again.')), timeoutMs);
-      });
-      const cancel = () => rejectWait(new Error('Page loading was interrupted.'));
-      pending.add(cancel);
-      try { return await Promise.race([promise, timeout]); }
-      finally { global.clearTimeout(timer); pending.delete(cancel); }
-    }
-    function destroy() {
-      hide();
-      for (const cancel of pending) cancel();
-      global.removeEventListener('pagehide', destroy);
-    }
-    global.addEventListener('pagehide', destroy);
-    return {show, progress, hide, wait, destroy};
-  }
-  function skeleton(label = 'Loading documents…') {
-    const safe = String(label).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    return '<div class="wcs-loading-skeleton" role="status"><span class="sr-only">'+safe+'</span><div aria-hidden="true">'+
-      Array.from({length:3}, () => '<div class="wcs-skeleton-card"><i></i><i></i><i></i></div>').join('')+'</div></div>';
-  }
-  global.WCSLoadingOverlay = {create, skeleton};
-})(window);
-
-/* Runs inline in each page macro, before either attachment script downloads.
- * Uses the existing global stylesheet and hands the same overlay to app.js. */
-(function (global) {
-  'use strict';
-  const target=document.getElementById('wcspedia');
-  if(!target||global.WCSPageBoot)return;
-  const loading=global.WCSLoadingOverlay.create({target});
-  let timer,failed=false,claimed=false;
-  function fail(message){
-    if(failed||claimed)return;
-    failed=true;clearTimeout(timer);loading.destroy();
-    const box=document.createElement('div');box.className='boot-state';box.setAttribute('role','alert');
-    const heading=document.createElement('h1');heading.textContent='WCSpedia could not load';
-    const detail=document.createElement('p');detail.textContent=message;
-    const retry=document.createElement('button');retry.className='button';retry.textContent='Try again';retry.onclick=()=>location.reload();
-    box.append(heading,detail,retry);target.replaceChildren(box);
-  }
-  global.WCSPageBoot={
-    get failed(){return failed;},
-    fail,
-    claim(mount){
-      if(mount!==target)return null;
-      if(failed)throw new Error('Page startup expired. Reload to try again.');
-      claimed=true;clearTimeout(timer);return loading;
-    }
-  };
-  loading.show('Loading WCSpedia…');
-  timer=setTimeout(()=>fail('Page scripts took too long to load. Check your connection and try again.'),60000);
-  global.addEventListener('pagehide',()=>{clearTimeout(timer);loading.hide();});
-  global.addEventListener('pageshow',event=>{if(event.persisted&&!claimed)fail('Page loading was interrupted. Reload to try again.');});
-})(window);
 
   const modules = window.WCSPageModules = window.WCSPageModules || {};
   if (modules['insights']) return;
@@ -245,6 +31,7 @@
 (function (w,d) {
   'use strict';
   if(w.WCSReaderSidebar)return;
+  var defaultedHosts=new WeakSet();
   var host=null,observer=null,resizeObserver=null,queued=false,destroyed=false,revealOwned=false;
   var compactPaths=new Set(),compactLinks=new Set(),tooltip=null,tooltipLink=null,previousDescription=null;
   var links=new Map(),checks=new Map(),pending=[],running=0,generation=0,controllers=new Set(),leafMarkers=new Set(),treeRows=new Set(),collections=new Set();
@@ -381,6 +168,16 @@
     compact=compact&&Array.from(compactLinks).some(function(a){return host.contains(a);});
     if(host.getAttribute('data-wcs-native-compact')!==String(compact)){host.setAttribute('data-wcs-native-compact',String(compact));hideTooltip();}
   }
+  function defaultCollapsed(){
+    if(!host||defaultedHosts.has(host))return;
+    if(host.getAttribute('data-wcs-native-compact')==='true'){defaultedHosts.add(host);return;}
+    var toggle=host.querySelector('.ia-toggle-button,.acs-side-bar-toggle,[aria-label="Collapse sidebar"],[title="Collapse sidebar"]');
+    if(!toggle||toggle.disabled)return;
+    defaultedHosts.add(host);
+    // Invoke the existing native control. Its own handler owns widths, offsets
+    // and stored preferences. Never re-collapse after the reader expands it.
+    toggle.click();compactState();
+  }
   function attachHost(){
     host.addEventListener('mouseover',showTooltip);host.addEventListener('focusin',showTooltip);host.addEventListener('mouseout',leaveTooltip);host.addEventListener('focusout',leaveTooltip);
     if(w.ResizeObserver){resizeObserver=new w.ResizeObserver(compactState);resizeObserver.observe(host);}
@@ -414,7 +211,7 @@
     // Let the theme restore its own sidebar/content layout. Native collapsed
     // classes and preferences remain entirely under Confluence's control.
     if(d.body.classList.contains('citi-hide-sidebar')){revealOwned=true;d.body.classList.remove('citi-hide-sidebar');}
-    enhance();compactState();
+    enhance();compactState();defaultCollapsed();
   }
   function schedule(){if(!queued){queued=true;Promise.resolve().then(function(){queued=false;refresh();});}}
   function start(){
@@ -2506,7 +2303,7 @@
     logoUrl: './assets/citi-logo.png', logoDataUrl: '', loadTimeout: 20000, allowCDN: true
   });
   var NAVY = '002D72', BLUE = '056DAE', GRAY = 'D9D9D9', PALE = 'EFF5F9';
-  var NOTE = 'Always refer to the online document for the current approved version. A downloaded copy is uncontrolled. Verify its version and approval status against the source before use.';
+  var NOTE = 'Always refer to the online document for the current approved version. Verify its version and approval status against the source before use.';
   var loads = new Map();
   function fail(message) { var error = new Error(message); error.code = 'DOCUMENT_EXPORT_FAILED'; throw error; }
   function text(value) { return value == null ? '' : String(value).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); }
@@ -2698,7 +2495,7 @@
       });
     }
     return { pageSize: 'A4', pageMargins: [48, 42, 48, 52], info: { title: m.title, author: m.author.name, subject: m.reference + ' version ' + m.version + ' revision ' + m.revision, creator: 'WCSpedia' }, defaultStyle: { font: 'Roboto', fontSize: 10.5, lineHeight: 1.2, color: '#222222' }, styles: { title: { fontSize: 21, bold: true, color: '#000000' }, heading1: { fontSize: 18, bold: true, color: '#000000' }, heading2: { fontSize: 14, bold: true, color: '#000000' }, heading3: { fontSize: 12, bold: true, color: '#000000' }, caption: { fontSize: 8.5, italics: true, color: '#4D6072', margin: [0, 0, 0, 12] } }, content: nodes,
-      footer: function (page, pages) { return { columns: [{ text: m.reference + ' | v' + m.version + ' r' + m.revision, width: '*' }, { text: 'Uncontrolled when downloaded | ' + page + ' / ' + pages, alignment: 'right', width: '*' }], fontSize: 8, color: '#52667B', margin: [48, 15, 48, 0] }; },
+      footer: function (page, pages) { return { columns: [{ text: m.reference + ' | v' + m.version + ' r' + m.revision, width: '*' }, { text: page + ' / ' + pages, alignment: 'right', width: '*' }], fontSize: 8, color: '#52667B', margin: [48, 15, 48, 0] }; },
       pageBreakBefore: function (node, following) { return !!node.headlineLevel && following.length === 0; }
     };
   }
@@ -2767,7 +2564,7 @@
         nodes.push(para([{ text: source.url || 'Source URL: Not recorded', href: source.url || undefined }]));
       });
     }
-    return new d.Document({ title: m.title, creator: m.author.name, subject: m.reference + ' version ' + m.version + ' revision ' + m.revision, description: 'Exported from WCSpedia. ' + NOTE, numbering: { config: numbering }, styles: { default: { document: { run: { font: 'Arial', size: 21, color: '222222' }, paragraph: { spacing: { after: 140, line: 280 } } }, title: { run: { font: 'Arial', size: 42, bold: true, color: '000000' } }, heading1: { run: { font: 'Arial', size: 36, bold: true, color: '000000' } }, heading2: { run: { font: 'Arial', size: 28, bold: true, color: '000000' } }, heading3: { run: { font: 'Arial', size: 24, bold: true, color: '000000' } } } }, sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 840, bottom: 1040, left: 963, right: 963, footer: 480 } } }, footers: { default: new d.Footer({ children: [new d.Paragraph({ children: [new d.TextRun({ text: m.reference + ' | v' + m.version + ' r' + m.revision + '   Uncontrolled when downloaded   ', size: 16, color: '52667B' }), new d.TextRun({ children: [d.PageNumber.CURRENT, ' / ', d.PageNumber.TOTAL_PAGES], size: 16, color: '52667B' })], alignment: d.AlignmentType.CENTER })] }) }, children: nodes }] });
+    return new d.Document({ title: m.title, creator: m.author.name, subject: m.reference + ' version ' + m.version + ' revision ' + m.revision, description: 'Exported from WCSpedia. ' + NOTE, numbering: { config: numbering }, styles: { default: { document: { run: { font: 'Arial', size: 21, color: '222222' }, paragraph: { spacing: { after: 140, line: 280 } } }, title: { run: { font: 'Arial', size: 42, bold: true, color: '000000' } }, heading1: { run: { font: 'Arial', size: 36, bold: true, color: '000000' } }, heading2: { run: { font: 'Arial', size: 28, bold: true, color: '000000' } }, heading3: { run: { font: 'Arial', size: 24, bold: true, color: '000000' } } } }, sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 840, bottom: 1040, left: 963, right: 963, footer: 480 } } }, footers: { default: new d.Footer({ children: [new d.Paragraph({ children: [new d.TextRun({ text: m.reference + ' | v' + m.version + ' r' + m.revision + '   ', size: 16, color: '52667B' }), new d.TextRun({ children: [d.PageNumber.CURRENT, ' / ', d.PageNumber.TOTAL_PAGES], size: 16, color: '52667B' })], alignment: d.AlignmentType.CENTER })] }) }, children: nodes }] });
   }
   function script(url, timeout) {
     if (!root.document) return Promise.reject(new Error('Export libraries must be loaded in a browser.'));
@@ -3110,7 +2907,7 @@
   'use strict';
 
   var STATUSES = ['Draft', 'In review', 'Changes requested', 'Awaiting approval', 'Published'];
-  var ACTIONS = ['edit', 'submit', 'request-changes', 'complete-review', 'approve', 'revise', 'delete'];
+  var ACTIONS = ['edit', 'submit', 'request-changes', 'complete-review', 'approve', 'revise', 'delete', 'reassign-owner'];
   var CONTENT_FIELDS = ['title', 'summary', 'sections', 'bodyMarkdown', 'slug', 'highlights', 'cover', 'tags', 'processes', 'regions', 'assets', 'attachments', 'governance', 'sourceMetadata', 'commentsEnabled'];
   var REQUIRED_FIELDS = ['id', 'reference', 'area', 'type', 'ownerId', 'authorId', 'reviewerId', 'approverId'];
   var REVIEW_FIELDS = ['reviewedBy', 'reviewedAt', 'reviewedRevision', 'approvedBy', 'approvedAt', 'effectiveAt', 'nextReviewAt', 'governanceReview'];
@@ -3282,7 +3079,7 @@
   function contributed(doc, current, actorId) {
     return actorId === doc.authorId || actorId === current.createdBy || (current.contributorIds || []).indexOf(actorId) !== -1;
   }
-  function actionsFor(doc, current, actorId, permissionContext) {
+  function actionsFor(doc, current, actorId, permissionContext, peopleById) {
     if (isDeleted(doc)) return [];
     var actions = [];
     var mayEdit = permissionContext == null ? actorId === doc.authorId : permissionGranted(permissionContext, doc, actorId, 'edit');
@@ -3298,6 +3095,7 @@
         if (current.reviewedBy === doc.reviewerId && current.reviewedAt && current.reviewedRevision === current.revision) actions.push('approve');
       }
     }
+    if (permissionGranted(permissionContext, doc, actorId, 'edit') && (actorId === doc.ownerId || peopleById[actorId].role === 'Manager' || permissionGranted(permissionContext, doc, actorId, 'admin'))) actions.push('reassign-owner');
     if (permissionGranted(permissionContext, doc, actorId, 'delete')) actions.push('delete');
     return actions;
   }
@@ -3305,7 +3103,7 @@
     try {
       var peopleById = peopleMap(people);
       if (!has(peopleById, actorId)) return [];
-      return actionsFor(doc, validateDocument(doc, peopleById), actorId, permissionContext);
+      return actionsFor(doc, validateDocument(doc, peopleById), actorId, permissionContext, peopleById);
     } catch (_) { return []; }
   }
   function change(field, before, after) {
@@ -3389,9 +3187,9 @@
     if (!has(peopleById, options.actorId)) fail('Choose a valid actor.');
     if (!positiveInteger(options.expectedVersion) || !positiveInteger(options.expectedRevision)) fail('Expected version and revision are required. Refresh the document and try again.');
     if (options.expectedVersion !== current.version || options.expectedRevision !== current.revision) fail('This document changed. Refresh before continuing.');
-    if (action === 'delete' && !Number.isSafeInteger(options.expectedAuditLength)) fail('Expected audit length is required before deleting. Refresh the document and try again.');
+    if (['delete','reassign-owner'].includes(action) && !Number.isSafeInteger(options.expectedAuditLength)) fail('Expected audit length is required for this action. Refresh the document and try again.');
     if (options.expectedAuditLength != null && (!Number.isSafeInteger(options.expectedAuditLength) || options.expectedAuditLength !== input.audit.length)) fail('The workflow changed. Refresh before continuing.');
-    if (actionsFor(input, current, options.actorId, options.permissionContext).indexOf(action) === -1) fail('This action is not allowed for the assigned person and current status.');
+    if (actionsFor(input, current, options.actorId, options.permissionContext, peopleById).indexOf(action) === -1) fail('This action is not allowed for the assigned person and current status.');
     var comment = requiredText(options.comment, 'A comment / change summary');
     var at = clock(options);
     if (input.audit.length && new Date(at).getTime() < new Date(input.audit[input.audit.length - 1].at).getTime()) fail('Action time cannot precede the latest audit event.');
@@ -3479,6 +3277,12 @@
       // Saving an edit of published content creates one draft atomically. The
       // approved snapshot is untouched; the event captures exact field changes.
       if (newContent) changes = changes.concat(diff(before, version, CONTENT_FIELDS.concat(['sourceImportedAt'])));
+    } else if (action === 'reassign-owner') {
+      var nextOwner = peopleById[options.ownerId];
+      if (!nextOwner || nextOwner.active === false || !['Author','Manager'].includes(nextOwner.role)) fail('Choose an active document owner with author or manager access.');
+      if (options.ownerId === doc.ownerId) fail('Choose a different document owner.');
+      changes.push(change('ownerId', doc.ownerId, options.ownerId));
+      doc.ownerId = options.ownerId;
     } else if (action === 'delete') {
       // Keep immutable snapshots and audit history. The trusted service separately
       // trashes a mapped native page only after durable audit retention succeeds.
@@ -3537,7 +3341,7 @@
   }
   function modifiedAt(doc, version) {
     // A pending edit must not move an older approved snapshot up the published list.
-    if (version.status === 'Published') return timestamp(version.approvedAt || version.createdAt);
+    if (version.status === 'Published') return timestamp(version.publishedAt) || timestamp(version.approvedAt) || timestamp(version.createdAt);
     return (doc.audit || []).filter(function (event) { return event.version === version.version; }).reduce(function (latest, event) {
       return Math.max(latest, timestamp(event.at));
     }, timestamp(version.createdAt));
@@ -3632,7 +3436,7 @@
     }).filter(Boolean).sort(function(a,b) { return b.score-a.score || b.at-a.at || a.v.title.localeCompare(b.v.title); })
       .slice(0, limit == null ? 3 : limit).map(function (row) { return {d:row.d,v:row.v}; });
   }
-  return Object.freeze({ searchDocuments: searchDocuments, relatedDocuments: relatedDocuments });
+  return Object.freeze({ searchDocuments: searchDocuments, relatedDocuments: relatedDocuments, modifiedAt: modifiedAt });
 });
 
 ;
@@ -4502,7 +4306,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 })(typeof globalThis!=='undefined'?globalThis:this,function(root,W,E,Content,Renderer){
   'use strict';
   var STATE='wcspedia.workflow.state',FILE='wcspedia-document.json',JOURNAL='wcspedia.workflow.operation',SUMMARY='wcspedia-workflow-summary';
-  var ACTIONS=['create','edit','revise','submit','request-changes','complete-review','approve','delete'];
+  var ACTIONS=['create','edit','revise','submit','request-changes','complete-review','approve','delete','reassign-owner'];
   var TYPES=['Job aid','Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'];
   var EXPAND='space,ancestors,version,operations,body.storage,history';
   function fail(message,code){var e=new Error(message);e.code=code||'VALIDATION';throw e;}
@@ -4830,7 +4634,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function bodyWrite(p,document,media,kind,requestId,expectedParent,signal){
       if(marked(p,'wcs-operation-'+requestId)){p.readerReady=marked(p,'wcs-reader-v1');return p;}
       var initial=markers(p).find(function(value){return /^wcs-created-[a-zA-Z0-9-]{16,100}$/.test(value);});
-      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,attachmentPageId:numeric(config.attachmentPageId||rootId),contextPath:context,readerSidebarUrl:context+'/download/attachments/'+numeric(config.attachmentPageId||rootId)+'/wcspedia-reader-sidebar.js?api=v2',readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
+      var v=kind==='published'?W.publishedVersion(document):W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,attachmentPageId:numeric(config.attachmentPageId||rootId),contextPath:context,readerSidebarUrl:context+'/download/attachments/'+numeric(config.attachmentPageId||rootId)+'/wcspedia-reader-sidebar.js?api=v2',readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
       var suffix=' · WCS '+p.id;
       var title=kind==='published'?v.title.slice(0,250-suffix.length)+suffix:'WCSpedia working '+document.id;
       var response=await request('/rest/api/content/'+p.id,'PUT',{id:p.id,type:'page',title:title.slice(0,250),space:{key:space},ancestors:[{id:expectedParent}],version:{number:p.version.number+1,message:'WCSpedia '+kind+' '+v.status+' v'+v.version+' r'+v.revision+' · '+requestId},body:{storage:{representation:'storage',value:body}}},signal);
@@ -4891,7 +4695,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       }else{
         var entry=(session.data.documents||[]).find(function(d){return d.id===documentKey;});if(!entry||!entry.confluencePageId)fail('Reload the document workspace before saving.','NOT_FOUND');p=await page(entry.confluencePageId,signal,workingId);state=await readState(p,signal);doc=state.document;if(!doc)fail('The working document metadata is unavailable.','INVALID_DATA');ctx.dir=directory(ctx.catalog,ctx.policy,ctx.user,state.people);actor=ctx.dir.actor;
       }
-      if(Content.isInsightType(doc.type)&&!['create','edit','revise','delete'].includes(command.action))fail('This content publishes directly to Insights; open it in the editor to publish.','INVALID_ACTION');
+      if(Content.isInsightType(doc.type)&&!['create','edit','revise','delete','reassign-owner'].includes(command.action))fail('This content publishes directly to Insights; open it in the editor to publish.','INVALID_ACTION');
+      if(command.action==='reassign-owner'){
+        var nextOwner=ctx.dir.people.find(function(person){return person.id===command.ownerId&&['Author','Manager'].includes(person.role);});
+        if(!nextOwner)fail('Choose an active author or manager.','INVALID_MAPPING');
+        var nextUser=await request('/rest/api/user?username='+encodeURIComponent((nextOwner.confluence||{}).username||nextOwner.soeid),null,undefined,signal);
+        if(!E.identity(nextUser)||E.identity(nextUser).soeid!==E.normalizeSOEID(nextOwner.soeid))fail('The new owner cannot be verified in Confluence.','IDENTITY_MAPPING');
+      }
       var journal=await storage.property(p.id,JOURNAL,options(signal));
       if(journal&&journal.value&&journal.value.requestId===requestId){if(journal.value.fingerprint!==fingerprint||journal.value.actorSOEID!==who.soeid)fail('This request ID was already used for another action.','CONFLICT');if(journal.value.done)return loadWithContext({catalog:ctx.catalog,signal:signal,workspaceScope:'document:'+documentKey},ctx);}
       else if(journal&&journal.value&&!journal.value.done)fail('Another operation is unfinished. Retry that original action before making a new change.','WRITE_PENDING');
@@ -4899,13 +4709,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if(!Array.isArray(p.operations))fail('Confluence did not return editing permissions for working page '+p.id+'. Check native page access, then retry this same save.','INVALID_PERMISSIONS');
         if(!op(p,'update'))fail('Confluence does not permit editing working page '+p.id+'. Check that page’s native Editing restrictions and your space Add page permission. A WCSpedia entitlement alone cannot grant native access.','FORBIDDEN');
         if(!creating&&command.expectedPageVersion!=null&&p.version.number!==command.expectedPageVersion)fail('The native page changed. Reload before saving.','CONFLICT');
-        if(!creating&&['edit','revise','submit'].includes(command.action)&&!E.hasGrant(ctx.policy,who,'content.edit',documentKey))fail('Your WCSpedia document edit grant is missing.','FORBIDDEN');
+        if(!creating&&['edit','revise','submit','reassign-owner'].includes(command.action)&&!E.hasGrant(ctx.policy,who,'content.edit',documentKey))fail('Your WCSpedia document edit grant is missing.','FORBIDDEN');
         if(command.action==='delete'&&(!E.hasGrant(ctx.policy,who,'content.delete',documentKey)||!op(p,'delete')))fail('Your account cannot delete this document.','FORBIDDEN');
         if(['request-changes','complete-review','approve'].includes(command.action)&&actor.role==='Reader')fail('Your active review role is no longer available.','FORBIDDEN');
         var at=new Date().toISOString();
-        var relevantIds=new Set([doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId,actor.id].concat((doc.audit||[]).map(function(e){return e.actorId;})));
+        var relevantIds=new Set([doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId,actor.id,command.ownerId].concat((doc.audit||[]).map(function(e){return e.actorId;})));
         var snapshotPeople=ctx.dir.people.filter(function(person){return relevantIds.has(person.id);});
-        if(!creating)statePreflight(W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:at,effectiveAt:at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,comment:command.comment,requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')}}),snapshotPeople);
+        if(!creating)statePreflight(W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:at,effectiveAt:at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')}}),snapshotPeople);
         journal=await storage.putProperty(p.id,JOURNAL,{schemaVersion:1,requestId:requestId,fingerprint:fingerprint,actorSOEID:who.soeid,documentKey:documentKey,action:command.action,at:at,people:snapshotPeople,expectedNativeVersion:p.version.number,priorPublishedParentId:publicationParent(doc),priorStateRevision:state.state.revision,priorAttachmentVersion:state.state.attachmentVersion||0,priorFingerprint:state.state.fingerprint,stage:'reserved',done:false},journal?journal.version.number:null,options(signal));
       }
       async function checkpoint(changes){journal=await storage.putProperty(p.id,JOURNAL,Object.assign({},journal.value,changes),journal.version.number,options(signal));}
@@ -4914,7 +4724,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(state.state.revision!==j.priorStateRevision&&!(state.state.pointer&&state.state.pointer.pending&&state.state.pointer.pending.requestId===requestId&&state.state.pointer.pending.expectedRevision===j.priorStateRevision))fail('The document state changed while this action was pending.','CONFLICT');
       if(['request-changes','complete-review','approve'].includes(command.action)&&actor.role==='Reader')fail('Your active review role is no longer available.','FORBIDDEN');
       var permissionContext={actorId:actor.id,documentId:documentKey,create:creating,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')};
-      doc=creating?W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,permissionContext:permissionContext}):W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,effectiveAt:j.at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,comment:command.comment,permissionContext:permissionContext,requireGovernance:true});
+      doc=creating?W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,permissionContext:permissionContext}):W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,effectiveAt:j.at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,permissionContext:permissionContext,requireGovernance:true});
       if(!op(p,'update'))fail('Confluence no longer permits this working-page action.','FORBIDDEN');
       // Insights uses ordinary native create/edit access, like the earlier blog
       // publisher. Only the approval workflow provisions assigned editors.
@@ -4928,13 +4738,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var media=await stageMedia(doc,p,state.media||{},p.id,signal);doc._people=j.people||ctx.dir.people;
       if(marked(p,'wcs-operation-'+requestId)?p.version.number!==j.expectedNativeVersion+1:p.version.number!==j.expectedNativeVersion)fail('The native working page changed during this operation.','CONFLICT');
       if(command.action!=='delete')p=await bodyWrite(p,doc,media,'working',requestId,workingId,signal);
-      if(command.action==='approve'||(Content.isDirectPublication(doc)&&['create','edit','revise'].includes(command.action))){
+      if(command.action==='approve'||(command.action==='reassign-owner'&&doc.publishedConfluencePageId)||(Content.isDirectPublication(doc)&&['create','edit','revise'].includes(command.action))){
         var dest=await destination(doc,signal),publishedId=doc.publishedConfluencePageId||j.publishedPageId,published;
         if(publishedId){published=await page(publishedId,signal);if(parent(published)!==dest.id&&parent(published)!==workingId&&!(Content.isDirectPublication(doc)&&parent(published)===journal.value.priorPublishedParentId))fail('The published page was moved.','PAGE_SCOPE');if(!marked(published,'wcs-document-'+documentKey))fail('The published document identity changed.','PAGE_SCOPE');if(!op(published,'update'))fail('Confluence does not permit updating the published page.','FORBIDDEN');if(doc.publishedConfluencePageId&&!j.expectedPublishedVersion&&!journal.value.expectedPublishedVersion&&published.version.number!==doc.publishedConfluencePageVersion)fail('The published page changed outside this workflow. Reconcile its native history before approving.','CONFLICT');}
         else{if(!ctx.bounds.canCreate)fail('Publishing needs your Confluence space Add page permission.','FORBIDDEN');published=await createPage('WCSpedia publication '+documentKey,documentKey,'published',requestId,signal);await checkpoint({publishedPageId:published.id,expectedPublishedVersion:published.version.number,stage:'publication-created'});}
         if(!j.expectedPublishedVersion&&!journal.value.expectedPublishedVersion)await checkpoint({publishedPageId:published.id,expectedPublishedVersion:published.version.number,stage:'publication-prepared'});
         if(!op(published,'update'))fail('Confluence does not permit updating the published page.','FORBIDDEN');
-        if(!direct){
+        if(!direct&&command.action!=='reassign-owner'){
           var approver=users.find(function(u){return E.normalizeSOEID(u.username)===who.soeid;});if(!approver)fail('Only an assigned publisher can publish.','FORBIDDEN');
           await restrictUpdate(published,[approver],signal,{first:!doc.publishedConfluencePageId});
         }
@@ -9608,7 +9418,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   'use strict';
   // A shared Confluence header may load this before the page's full bundle.
   // Keep one API and ID sequence when the same component is included again.
-  if (global.WCSLoadingOverlay && typeof global.WCSLoadingOverlay.create === 'function' && typeof global.WCSLoadingOverlay.skeleton === 'function') return;
+  if (global.WCSLoadingOverlay?.version === 2 && typeof global.WCSLoadingOverlay.create === 'function' && typeof global.WCSLoadingOverlay.skeleton === 'function') return;
   let sequence = 0;
   function create({target, delayMs = 0}) {
     const doc = target.ownerDocument, pending = new Set();
@@ -9673,6 +9483,25 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if (text) message.textContent = text;
       bar.setAttribute('aria-valuetext', value + ' of ' + total + ' loading steps complete. ' + message.textContent);
     }
+    function adoptTarget(next) {
+      if (!next || next === target) return;
+      if (overlay) {
+        for (const [name, previous] of [['aria-busy', attributes.busy], ['inert', attributes.inert]]) {
+          if (previous == null) target.removeAttribute(name); else target.setAttribute(name, previous);
+        }
+        attributes = {busy:next.getAttribute('aria-busy'), inert:next.getAttribute('inert')};
+        next.setAttribute('aria-busy','true');next.setAttribute('inert','');
+      }
+      target = next;
+    }
+    function paint() {
+      return new Promise(resolve => {
+        let settled=false,first,second;
+        const done=()=>{if(settled)return;settled=true;global.clearTimeout(timer);global.cancelAnimationFrame(first);global.cancelAnimationFrame(second);resolve();};
+        const timer=global.setTimeout(done,100);
+        first=global.requestAnimationFrame(()=>{second=global.requestAnimationFrame(done);});
+      });
+    }
     function hide() {
       queuedProgress = null;
       if (showTimer !== null) { global.clearTimeout(showTimer); showTimer = null; }
@@ -9705,14 +9534,14 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       global.removeEventListener('pagehide', destroy);
     }
     global.addEventListener('pagehide', destroy);
-    return {show, progress, hide, wait, destroy};
+    return {show, progress, hide, wait, destroy, adoptTarget, paint};
   }
   function skeleton(label = 'Loading documents…') {
     const safe = String(label).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     return '<div class="wcs-loading-skeleton" role="status"><span class="sr-only">'+safe+'</span><div aria-hidden="true">'+
       Array.from({length:3}, () => '<div class="wcs-skeleton-card"><i></i><i></i><i></i></div>').join('')+'</div></div>';
   }
-  global.WCSLoadingOverlay = {create, skeleton};
+  global.WCSLoadingOverlay = {create, skeleton, version:2};
 })(window);
 
 ;
@@ -10139,7 +9968,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   function mount(root,config){
     const home=global.WCSNavigation.resolve('#/',config,global.location.href);
     const explore=global.WCSNavigation.resolve('#/results',config,global.location.href);
-    root.innerHTML='<div class="shell discovery-shell"><div class="discovery workspace-page wcs-faq-page"><section class="press-heading page-panel"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="'+escape(home)+'">WCSpedia</a><span aria-hidden="true">›</span><span aria-current="page">FAQs</span></nav><div class="eyebrow">Help &amp; guidance</div><h1>Frequently asked questions</h1><p>Find your way around WCSpedia, from your first search to publishing a document.</p></div></section><div class="discovery-container"><form class="library-workspace-search" role="search"><label for="wcs-faq-search">Search FAQs</label><div class="wcs-faq-search-row"><input id="wcs-faq-search" type="search" maxlength="200" placeholder="Try publishing, saved items or access…" aria-controls="wcs-faq-list" autocomplete="off"><button class="button secondary" type="reset">Clear</button></div></form><p class="library-count" id="wcs-faq-count" role="status"></p><div id="wcs-faq-list">'+entries.map(([q,a],i)=>'<details class="wcs-help-item" open><summary id="wcs-help-q-'+i+'">'+escape(q)+'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></summary><div role="region" aria-labelledby="wcs-help-q-'+i+'"><p>'+escape(a)+'</p></div></details>').join('')+'</div><p class="wcs-faq-empty" hidden>No matching questions. Try a different word or clear your search.</p><div class="wcs-faq-footer"><p>Ready to find what you need?</p><a class="discovery-text-link" href="'+escape(explore)+'">Explore documents <span aria-hidden="true">→</span></a></div></div></div></div>';
+    root.innerHTML='<div class="shell discovery-shell"><div class="discovery workspace-page wcs-faq-page"><section class="press-heading page-panel"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="'+escape(home)+'">WCSpedia</a><span aria-hidden="true">›</span><span aria-current="page">FAQs</span></nav><div class="eyebrow">Help &amp; guidance</div><h1>Frequently asked questions</h1><p>Find your way around WCSpedia, from your first search to publishing a document.</p></div></section><div class="discovery-container"><form class="library-workspace-search" role="search"><label for="wcs-faq-search">Search FAQs</label><div class="wcs-faq-search-row"><input id="wcs-faq-search" type="search" maxlength="200" placeholder="Try publishing, saved items or access…" aria-controls="wcs-faq-list" autocomplete="off"><button class="button secondary" type="reset">Clear</button></div></form><p class="library-count" id="wcs-faq-count" role="status"></p><div id="wcs-faq-list">'+entries.map(([q,a],i)=>'<details class="wcs-help-item"><summary id="wcs-help-q-'+i+'">'+escape(q)+'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></summary><div role="region" aria-labelledby="wcs-help-q-'+i+'"><p>'+escape(a)+'</p></div></details>').join('')+'</div><p class="wcs-faq-empty" hidden>No matching questions. Try a different word or clear your search.</p><div class="wcs-faq-footer"><p>Ready to find what you need?</p><a class="discovery-text-link" href="'+escape(explore)+'">Explore documents <span aria-hidden="true">→</span></a></div></div></div></div>';
     const input=root.querySelector('#wcs-faq-search'),items=[...root.querySelectorAll('.wcs-help-item')];
     const filter=()=>{
       const words=input.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);let visible=0;
@@ -10149,7 +9978,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     };
     input.addEventListener('input',filter);
     root.querySelector('form').addEventListener('submit',event=>event.preventDefault());
-    root.querySelector('form').addEventListener('reset',event=>{event.preventDefault();input.value='';items.forEach(item=>item.open=true);filter();input.focus();});
+    root.querySelector('form').addEventListener('reset',event=>{event.preventDefault();input.value='';items.forEach(item=>item.open=false);filter();input.focus();});
     filter();
   }
   global.WCSFAQ={mount};
@@ -10157,5 +9986,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['insights'] = { version: '814dd9396ec3' };
+  modules['insights'] = { version: '6460e0560d33' };
 })();
