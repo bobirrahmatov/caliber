@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === '0ea73ca4749c') return;
+  if (registry.addDocument && registry.addDocument.version === 'e8e2e3323db8') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -2213,9 +2213,21 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var controller=new AbortController(),timer=setTimeout(function(){controller.abort();},15000),abort=function(){controller.abort();};if(signal)signal.addEventListener('abort',abort,{once:true});
       try{var r=await fetcher(u.href,{credentials:'same-origin',mode:'same-origin',redirect:'error',cache:'no-store',signal:controller.signal});if(!r.ok||r.redirected||r.url&&r.url!==u.href)fail('A staged attachment could not be read.','MEDIA_NOT_STAGED');var declared=Number(r.headers&&r.headers.get('content-length'));if(declared>10000000)fail('Attachment exceeds 10,000,000 bytes.','ATTACHMENT_LIMIT');var bytes;if(r.body&&typeof r.body.getReader==='function'){var reader=r.body.getReader(),chunks=[],size=0;while(true){var part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>10000000){await reader.cancel();fail('Attachment exceeds 10,000,000 bytes.','ATTACHMENT_LIMIT');}chunks.push(part.value);}bytes=new Uint8Array(size);var offset=0;chunks.forEach(function(c){bytes.set(c,offset);offset+=c.length;});}else{bytes=new Uint8Array(await r.arrayBuffer());if(bytes.length>10000000)fail('Attachment exceeds 10,000,000 bytes.','ATTACHMENT_LIMIT');}return {bytes:bytes,mediaType:(r.headers&&r.headers.get('content-type')||'application/octet-stream').split(';')[0],fileName:decodeURIComponent(u.pathname.split('/').pop()),sourceUrl:resource.sourceUrl};}finally{clearTimeout(timer);if(signal)signal.removeEventListener('abort',abort);}
     }
+    // Independent attachment transfers may overlap. Stop scheduling on failure
+    // and drain started writes before exposing recovery to the user.
+    async function mediaBatch(items,task){
+      var next=0,failure=null;
+      await Promise.all(Array.from({length:Math.min(3,items.length)},async function(){
+        while(!failure&&next<items.length){
+          var item=items[next++];
+          try{await task(item);}catch(error){if(!failure)failure=error;}
+        }
+      }));
+      if(failure)throw failure;
+    }
     async function stageMedia(document,p,previousMedia,sourcePageId,signal){
       var v=W.currentVersion(document),resources=Renderer.mediaResources(document,v).items,mapping={},old=previousMedia||{};
-      for(var resource of resources){
+      await mediaBatch(resources,async function(resource){
         var entry=old[resource.key];
         if(entry&&entry.sourceUrl===resource.sourceUrl&&String(p.id)===String(sourcePageId)){
           if(!Number.isSafeInteger(entry.attachmentVersion)||entry.attachmentVersion<1||!/^[a-f0-9]{64}$/.test(entry.sha256||''))fail('The staged resource has unverifiable version metadata. Upload it again.','INTEGRITY');
@@ -2223,11 +2235,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           if(pinned.bytes.byteLength!==entry.size||await hashBytes(pinned.bytes)!==entry.sha256)fail('The staged resource changed after it was saved. Upload it again.','INTEGRITY');
           mapping[resource.key]=entry;
         }
-      }
+      });
       var remote=resources.filter(function(r){return !mapping[r.key]&&!r.sourceUrl.startsWith('data:');});
-      for(var r of remote){var item=await download(r,sourcePageId,signal);mapping[r.key]=await upload(p.id,item,signal);}
+      await mediaBatch(remote,async function(r){var item=await download(r,sourcePageId,signal);mapping[r.key]=await upload(p.id,item,signal);});
       var uploads=await Renderer.collectMedia(document,v,{media:mapping});
-      for(var item of uploads)mapping[item.key]=await upload(p.id,item,signal);
+      await mediaBatch(uploads,async function(item){mapping[item.key]=await upload(p.id,item,signal);});
       return mapping;
     }
     function externalize(doc,media){
@@ -2257,7 +2269,9 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var previous=await request('/rest/api/content/'+p.id+'/label?limit=200',null,undefined,signal);if(!previous||!Array.isArray(previous.results)||previous._links&&previous._links.next)fail('The page label list could not be safely reconciled.','LABEL_LIMIT');
       var obsolete=previous.results.map(function(l){return l.name;}).filter(function(name){return /^wcs-(?:area|type|tag|topic|process|region)-/.test(name)&&!labels.includes(name);});
       for(var name of obsolete)await request('/rest/api/content/'+p.id+'/label?name='+encodeURIComponent(name),'DELETE',undefined,signal);
-      await request('/rest/api/content/'+p.id+'/label','POST',labels.map(function(name){return {prefix:'global',name:name};}),signal);
+      var existing=new Set(previous.results.filter(function(l){return l.prefix!=='my';}).map(function(l){return l.name;}));
+      var missing=labels.filter(function(name){return !existing.has(name);});
+      if(missing.length)await request('/rest/api/content/'+p.id+'/label','POST',missing.map(function(name){return {prefix:'global',name:name};}),signal);
     }
     async function trashPublished(doc,signal){
       var pub;
@@ -3716,7 +3730,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       await waitForDiscoverySession(options.signal);
       throwIfAborted(options.signal);
       var key = searchReadKey(options), cached = searchCache.get(key);
-      if (cached && Date.now() - cached.at < 30000) return clone(cached.result);
+      if (cached && Date.now() - cached.at < 120000) return clone(cached.result);
       if (cached) searchCache.delete(key);
       var entry = searchInflight.get(key);
       if (!entry) {
@@ -4044,7 +4058,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     }
     async function loadLanding(options) {
       options = options || {};
-      try { return await withSearchDeadline(function (signal) { return loadLandingWithin(Object.assign({}, options, { signal: signal })); }, options.signal); }
+      try { return await loadLandingWithin(options); }
       catch (error) { if (error.code === 'SEARCH_TIMEOUT') searchScopePromise = null; throw error; }
     }
     async function loadLandingWithin(options) {
@@ -4060,8 +4074,12 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var exclusions = searchExclusions({}, true), containers = exclusions.trees, excluded = exclusions.pages;
       function validPageID(id) { return (typeof id === 'string' || Number.isSafeInteger(id)) && /^[1-9]\d{0,19}$/.test(String(id)); }
       search.buildCQL({}, { rootPageId: pageId, spaceKey: configuredSearchSpace, excludeIds: excluded, excludeAncestorIds: containers });
-      await waitForDiscoverySession(options.signal,options.revalidateSession);
-      var space = await waitForSearchSpace(options.signal);
+      // Each read has its own deadline. Optional counts must not consume the
+      // latest-articles budget or cancel already successful results.
+      var space = await withSearchDeadline(async function(signal) {
+        await waitForDiscoverySession(signal,options.revalidateSession);
+        return waitForSearchSpace(signal);
+      }, options.signal);
       throwIfAborted(options.signal);
       var output = { recent: [], areas: {}, recentReady: false, complete: false }, validKeys = [];
       function errorValue(error) { return { code: error.code || 'LOAD_ERROR', status: error.status, message: error.message || 'Confluence could not load this content.' }; }
@@ -4091,7 +4109,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           var cql = search.buildCQL({}, { rootPageId: pageId, spaceKey: space, excludeAncestorIds: containers }) + ' AND id IN (' + ids.join(', ') + ')';
           var url = endpoint('/rest/api/content/search');
           url.search = new URLSearchParams({ cql: cql, limit: String(ids.length), start: '0', expand: 'space,ancestors' }).toString();
-          var payload = await json(await request(url, { signal: options.signal }));
+          var payload = await withSearchDeadline(async function(signal) { return json(await request(url, {signal:signal})); }, options.signal);
           throwIfAborted(options.signal);
           if (!object(payload) || !Array.isArray(payload.results) || payload.results.length > ids.length) fail('Unexpected Confluence business-area response.', 'INVALID_SCOPE');
           var pages = new Map();
@@ -4130,7 +4148,9 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         }
         await Promise.all(Array.from({ length: Math.min(2, ready.length) }, worker));
       }
-      await Promise.all([recent(), areas()]);
+      // Prioritize visible articles over speculative area prefetches.
+      await recent();
+      await areas();
       throwIfAborted(options.signal);
       output.complete = true; emit();
       return output;
@@ -4500,5 +4520,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: '0ea73ca4749c', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
+  registry.addDocument = { version: 'e8e2e3323db8', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
 })();

@@ -26,128 +26,49 @@
 
 
 /* Source: reader-sidebar.js */
-/* Reader-only navigation. Reuses the native permission-filtered page tree;
- * no extra REST requests, copied page bodies or replacement header. */
+/* Reader-only styling of Confluence's own sidebar. Never creates navigation,
+ * moves tree controls, replaces collapse handlers or fetches a second tree. */
 (function (w,d) {
   'use strict';
   if(w.WCSReaderSidebar)return;
-  var host=null,rail=null,created=false,collapsed=false,queued=false,observer=null,frame=0,destroyed=false;
-  var decorations=new Map();
-  var names=['Insights','Blogs','Credit Approval Control','Credit Information Management','Credit Management Reporting','Deal Closing','Documentation Pledging','EMEA Credit Admin','Loan Management','Regional Operating Manuals'];
-  var paths=['M4 4h16v16H4zM8 8h8M8 12h8M8 16h5','M4 4h16v16H4zM8 8h8M8 12h8M8 16h5','M12 3l8 4v6c0 5-8 8-8 8s-8-3-8-8V7zM8 12l3 3 5-6','M4 5h16v14H4zM8 9h8M8 13h4','M4 20V4M4 20h17M8 16v-4M13 16V8M18 16V5','M4 6h16v14H4zM8 6V3h8v3M9 13l2 2 4-4','M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7','M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c-5 5-5 13 0 18 5-5 5-13 0-18','M3 9l9-6 9 6H3M5 10v8m7-8v8m7-8v8M3 21h18','M3 4h7l2 2 2-2h7v16h-7l-2 1-2-1H3zM12 6v15'];
-  function svg(path){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="'+path+'"/></svg>';}
+  var host=null,observer=null,queued=false,destroyed=false,revealOwned=false;
   function active(){
-    if(!w.location)return false;
+    if(!w.location||w.top!==w.self)return false;
     if(d.querySelector('#editpageform,#content-editor,body.contenteditor')||/[?&](?:wcsNativeUi=1|pageVersion=|preview=)/.test(w.location.search))return false;
     if(d.getElementById('wcspedia'))return !!d.querySelector('#wcspedia .detail-page');
-    return !!d.querySelector('.wcs-native-article') && !!d.body.getAttribute('data-wcs-active-style-flags');
-  }
-  function position(){
-    frame=0;if(!host)return;
-    var bottom=12;
-    d.querySelectorAll('#header,#navigation,.wcs-header,[data-wcs-header],.aui-header').forEach(function(node){var r=node.getBoundingClientRect();if(r.height>0&&r.height<180&&r.bottom>0)bottom=Math.max(bottom,r.bottom+12);});
-    d.body.style.setProperty('--wcs-reader-nav-top',Math.min(bottom,200)+'px');
-  }
-  function schedulePosition(){if(host&&!frame)frame=w.requestAnimationFrame(position);}
-  function mark(node,name,value){
-    if(!node)return;
-    if(!decorations.has(node))decorations.set(node,new Map());
-    var original=decorations.get(node);if(!original.has(name))original.set(name,node.getAttribute(name));
-    if(node.getAttribute(name)!==value)node.setAttribute(name,value);
-  }
-  function pageId(href){try{var url=new URL(href,w.location.href);if(url.origin!==w.location.origin)return '';return (url.hash.match(/^#\/published\/(\d+)/)||[])[1]||url.searchParams.get('pageId')||(url.pathname.match(/\/pages\/(\d+)(?:\/|$)/)||[])[1]||'';}catch(_){return '';}}
-  function decorateTree(){
-    var current=pageId(w.location.href);
-    host.querySelectorAll('a[href]').forEach(function(link){
-      if(rail.contains(link))return;
-      if(link.matches('.plugin_pagetree_childtoggle'))return;
-      var selected=!!current&&pageId(link.href)===current||link.getAttribute('aria-current')==='page'||!!link.closest('.plugin_pagetree_current');
-      mark(link,'data-wcs-reader-current',String(selected));
-    });
-  }
-  function decorateBranch(link){
-    var li=link.closest('li');if(!li)return;
-    mark(link,'data-wcs-reader-collection','');
-    var details=link.closest('summary')?.parentElement;
-    if(details?.tagName==='DETAILS'){
-      mark(details.querySelector('summary'),'data-wcs-reader-chevron','');
-      mark(details.querySelector('summary'),'data-wcs-reader-open',String(details.open));
-      mark(li,'data-wcs-reader-branch',details.open?'open':'closed');return;
-    }
-    var toggle=Array.from(li.querySelectorAll('.plugin_pagetree_childtoggle,button[aria-expanded],a[aria-expanded]')).find(function(node){return node!==link&&node.closest('li')===li;});
-    if(!toggle)return;
-    mark(li,'data-wcs-reader-branch-row','');
-    mark(toggle,'data-wcs-reader-chevron','');
-    var expanded=toggle.getAttribute('aria-expanded');
-    if(expanded===null){
-      var classes=toggle.className+' '+(toggle.querySelector('[class]')?.className||'');
-      var image=toggle.querySelector('img');
-      var state=String(classes)+' '+(image?.getAttribute('src')||'');
-      if(/closed|collapsed|plus/.test(state))expanded='false';
-      else if(/opened|expanded|minus/.test(state))expanded='true';
-      else{var children=Array.from(li.children).find(function(node){return node.matches('ul,.plugin_pagetree_children');});expanded=String(!!children&&!children.hidden&&w.getComputedStyle(children).display!=='none');}
-    }
-    mark(toggle,'data-wcs-reader-open',expanded);
-    mark(toggle,'aria-label',(expanded==='true'?'Collapse ':'Expand ')+link.textContent.trim());
-    mark(li,'data-wcs-reader-branch',expanded==='true'?'open':'closed');
+    return !!d.querySelector('#main-content .wcs-native-article,.wiki-content .wcs-native-article')&&!!d.body.getAttribute('data-wcs-active-style-flags');
   }
   function reset(){
-    if(host){host.classList.remove('wcs-reader-navigation');if(created)host.remove();}
-    d.querySelectorAll('[data-wcs-reader-main-icon]').forEach(function(el){el.remove();});
-    decorations.forEach(function(attrs,node){attrs.forEach(function(value,name){if(value===null)node.removeAttribute(name);else node.setAttribute(name,value);});});decorations.clear();
-    rail?.remove();host=null;rail=null;created=false;
-    d.body?.removeAttribute('data-wcs-reader-nav');d.body?.style.removeProperty('--wcs-reader-nav-top');
+    if(host)host.classList.remove('wcs-reader-navigation');
+    host=null;d.body?.removeAttribute('data-wcs-reader-nav');
+    if(revealOwned){revealOwned=false;d.body.classList.add('citi-hide-sidebar');}
   }
   function refresh(){
-    if(destroyed)return;
-    if(!d.body||!active()){reset();return;}
-    if(host&&!host.isConnected)reset();
-    if(!host){
-      host=d.querySelector('.ia-fixed-sidebar,.acs-side-bar,#sidebar');
-      if(!host){host=d.createElement('aside');host.setAttribute('aria-label','Knowledge navigation');d.body.append(host);created=true;}
-      host.classList.add('wcs-reader-navigation');
-      rail=d.createElement('div');rail.className='wcs-reader-nav-rail';
-      var toggle=d.createElement('button');toggle.type='button';toggle.className='wcs-reader-nav-toggle';
-      toggle.innerHTML=svg('M5 3.5h14a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5M9 3.5v17');
-      toggle.addEventListener('click',function(){collapsed=!collapsed;refresh();});rail.append(toggle);
-      var title=d.createElement('span');title.className='wcs-reader-nav-heading';title.textContent='Knowledge library';rail.append(title);
-      var nav=d.createElement('nav');nav.className='wcs-reader-nav-shortcuts';nav.setAttribute('aria-label','Collections');rail.append(nav);
-      host.prepend(rail);
-    }
-    d.body.setAttribute('data-wcs-reader-nav',collapsed?'collapsed':'expanded');
-    var toggle=rail.querySelector('button');toggle.setAttribute('aria-expanded',String(!collapsed));toggle.setAttribute('aria-label',collapsed?'Expand knowledge sidebar':'Collapse knowledge sidebar');toggle.title=toggle.getAttribute('aria-label');
-    var nav=rail.querySelector('nav'), entries=[];
-    host.querySelectorAll('a[href]').forEach(function(link){
-      if(rail.contains(link))return;
-      var label=link.textContent.trim().replace(/[-_]/g,' '),index=names.findIndex(function(n){return n.toLowerCase()===label.toLowerCase();});
-      if(index<0||entries.some(function(e){return e.index===index;}))return;
-      try{var url=new URL(link.href,w.location.href);if(url.origin!==w.location.origin)return;}catch(_){return;}
-      entries.push({index:index,title:names[index],href:link.href});
-      decorateBranch(link);
-      if(!link.querySelector('[data-wcs-reader-main-icon]')){var icon=d.createElement('span');icon.setAttribute('data-wcs-reader-main-icon','');icon.innerHTML=svg(paths[index]);link.prepend(icon);}
-    });
-    if(created){
-      var config=w.WCS_CONFIG||{},catalog=w.WCSDiscoveryCatalog||w.WCSData||{};
-      (catalog.areas||[]).forEach(function(area){var index=names.findIndex(function(n){return n===area.title;});if(index>=0)entries.push({index:index,title:area.title,href:'#/topic/'+encodeURIComponent(area.id)});});
-      entries.unshift({index:0,title:'Insights',href:(config.pages?.insights||'#/insights')});
-    }
-    var fingerprint=JSON.stringify(entries);
-    if(nav.dataset.entries!==fingerprint){nav.dataset.entries=fingerprint;nav.replaceChildren();entries.forEach(function(entry){var a=d.createElement('a');a.href=entry.href;a.title=entry.title;a.setAttribute('aria-label',entry.title);a.innerHTML=svg(paths[entry.index]);var span=d.createElement('span');span.textContent=entry.title;a.append(span);nav.append(a);});}
-    decorateTree();
-    position();
+    if(destroyed||!d.body)return;
+    if(!active()){reset();return;}
+    var native=d.querySelector('.ia-fixed-sidebar,.acs-side-bar,#sidebar');
+    if(!native){reset();return;} // No native tree means no sidebar; never synthesize one.
+    if(host!==native){if(host)host.classList.remove('wcs-reader-navigation');host=native;}
+    host.classList.add('wcs-reader-navigation');
+    d.body.setAttribute('data-wcs-reader-nav','native');
+    // Let the theme restore its own sidebar/content layout. Native collapsed
+    // classes and preferences remain entirely under Confluence's control.
+    if(d.body.classList.contains('citi-hide-sidebar')){revealOwned=true;d.body.classList.remove('citi-hide-sidebar');}
   }
   function schedule(){if(!queued){queued=true;Promise.resolve().then(function(){queued=false;refresh();});}}
   function start(){
-    refresh();if(observer)return;
-    observer=new MutationObserver(function(changes){if(changes.some(function(c){
-      if(rail?.contains(c.target))return false;
-      if(c.type==='attributes')return c.target===d.body&&c.attributeName==='data-wcs-active-style-flags'||!!host?.contains(c.target)&&c.target!==host;
-      return Array.from(c.addedNodes).concat(Array.from(c.removedNodes)).some(function(n){return n.nodeType===1&&!n.matches('[data-wcs-reader-main-icon],.wcs-reader-nav-rail');});}))schedule();});
-    observer.observe(d.body,{childList:true,subtree:true,attributes:true,attributeFilter:['data-wcs-active-style-flags','open','aria-expanded','aria-current','class','hidden','style','src']});
+    refresh();if(observer||!d.body)return;
+    observer=new MutationObserver(function(changes){
+      if(changes.some(function(c){
+        if(c.type==='attributes')return c.target===d.body&&((c.attributeName==='data-wcs-active-style-flags')||(active()&&d.body.classList.contains('citi-hide-sidebar')));
+        return Array.from(c.addedNodes).concat(Array.from(c.removedNodes)).some(function(n){return n.nodeType===1;});
+      }))schedule();
+    });
+    observer.observe(d.body,{childList:true,subtree:true,attributes:true,attributeFilter:['data-wcs-active-style-flags','class']});
   }
-  function destroy(){destroyed=true;observer?.disconnect();observer=null;reset();d.removeEventListener('DOMContentLoaded',start);w.removeEventListener('hashchange',schedule);w.removeEventListener('resize',schedulePosition);w.removeEventListener('scroll',schedulePosition);if(frame)w.cancelAnimationFrame(frame);}
+  function destroy(){destroyed=true;observer?.disconnect();observer=null;reset();d.removeEventListener('DOMContentLoaded',start);w.removeEventListener('hashchange',schedule);}
   w.WCSReaderSidebar={refresh:refresh,destroy:destroy};
-  d.addEventListener('DOMContentLoaded',start);w.addEventListener('hashchange',schedule);w.addEventListener('resize',schedulePosition);w.addEventListener('scroll',schedulePosition,{passive:true});
+  d.addEventListener('DOMContentLoaded',start);w.addEventListener('hashchange',schedule);
   if(d.body)start();
 })(window,document);
 
@@ -4472,9 +4393,21 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var controller=new AbortController(),timer=setTimeout(function(){controller.abort();},15000),abort=function(){controller.abort();};if(signal)signal.addEventListener('abort',abort,{once:true});
       try{var r=await fetcher(u.href,{credentials:'same-origin',mode:'same-origin',redirect:'error',cache:'no-store',signal:controller.signal});if(!r.ok||r.redirected||r.url&&r.url!==u.href)fail('A staged attachment could not be read.','MEDIA_NOT_STAGED');var declared=Number(r.headers&&r.headers.get('content-length'));if(declared>10000000)fail('Attachment exceeds 10,000,000 bytes.','ATTACHMENT_LIMIT');var bytes;if(r.body&&typeof r.body.getReader==='function'){var reader=r.body.getReader(),chunks=[],size=0;while(true){var part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>10000000){await reader.cancel();fail('Attachment exceeds 10,000,000 bytes.','ATTACHMENT_LIMIT');}chunks.push(part.value);}bytes=new Uint8Array(size);var offset=0;chunks.forEach(function(c){bytes.set(c,offset);offset+=c.length;});}else{bytes=new Uint8Array(await r.arrayBuffer());if(bytes.length>10000000)fail('Attachment exceeds 10,000,000 bytes.','ATTACHMENT_LIMIT');}return {bytes:bytes,mediaType:(r.headers&&r.headers.get('content-type')||'application/octet-stream').split(';')[0],fileName:decodeURIComponent(u.pathname.split('/').pop()),sourceUrl:resource.sourceUrl};}finally{clearTimeout(timer);if(signal)signal.removeEventListener('abort',abort);}
     }
+    // Independent attachment transfers may overlap. Stop scheduling on failure
+    // and drain started writes before exposing recovery to the user.
+    async function mediaBatch(items,task){
+      var next=0,failure=null;
+      await Promise.all(Array.from({length:Math.min(3,items.length)},async function(){
+        while(!failure&&next<items.length){
+          var item=items[next++];
+          try{await task(item);}catch(error){if(!failure)failure=error;}
+        }
+      }));
+      if(failure)throw failure;
+    }
     async function stageMedia(document,p,previousMedia,sourcePageId,signal){
       var v=W.currentVersion(document),resources=Renderer.mediaResources(document,v).items,mapping={},old=previousMedia||{};
-      for(var resource of resources){
+      await mediaBatch(resources,async function(resource){
         var entry=old[resource.key];
         if(entry&&entry.sourceUrl===resource.sourceUrl&&String(p.id)===String(sourcePageId)){
           if(!Number.isSafeInteger(entry.attachmentVersion)||entry.attachmentVersion<1||!/^[a-f0-9]{64}$/.test(entry.sha256||''))fail('The staged resource has unverifiable version metadata. Upload it again.','INTEGRITY');
@@ -4482,11 +4415,11 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           if(pinned.bytes.byteLength!==entry.size||await hashBytes(pinned.bytes)!==entry.sha256)fail('The staged resource changed after it was saved. Upload it again.','INTEGRITY');
           mapping[resource.key]=entry;
         }
-      }
+      });
       var remote=resources.filter(function(r){return !mapping[r.key]&&!r.sourceUrl.startsWith('data:');});
-      for(var r of remote){var item=await download(r,sourcePageId,signal);mapping[r.key]=await upload(p.id,item,signal);}
+      await mediaBatch(remote,async function(r){var item=await download(r,sourcePageId,signal);mapping[r.key]=await upload(p.id,item,signal);});
       var uploads=await Renderer.collectMedia(document,v,{media:mapping});
-      for(var item of uploads)mapping[item.key]=await upload(p.id,item,signal);
+      await mediaBatch(uploads,async function(item){mapping[item.key]=await upload(p.id,item,signal);});
       return mapping;
     }
     function externalize(doc,media){
@@ -4516,7 +4449,9 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var previous=await request('/rest/api/content/'+p.id+'/label?limit=200',null,undefined,signal);if(!previous||!Array.isArray(previous.results)||previous._links&&previous._links.next)fail('The page label list could not be safely reconciled.','LABEL_LIMIT');
       var obsolete=previous.results.map(function(l){return l.name;}).filter(function(name){return /^wcs-(?:area|type|tag|topic|process|region)-/.test(name)&&!labels.includes(name);});
       for(var name of obsolete)await request('/rest/api/content/'+p.id+'/label?name='+encodeURIComponent(name),'DELETE',undefined,signal);
-      await request('/rest/api/content/'+p.id+'/label','POST',labels.map(function(name){return {prefix:'global',name:name};}),signal);
+      var existing=new Set(previous.results.filter(function(l){return l.prefix!=='my';}).map(function(l){return l.name;}));
+      var missing=labels.filter(function(name){return !existing.has(name);});
+      if(missing.length)await request('/rest/api/content/'+p.id+'/label','POST',missing.map(function(name){return {prefix:'global',name:name};}),signal);
     }
     async function trashPublished(doc,signal){
       var pub;
@@ -6445,7 +6380,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       await waitForDiscoverySession(options.signal);
       throwIfAborted(options.signal);
       var key = searchReadKey(options), cached = searchCache.get(key);
-      if (cached && Date.now() - cached.at < 30000) return clone(cached.result);
+      if (cached && Date.now() - cached.at < 120000) return clone(cached.result);
       if (cached) searchCache.delete(key);
       var entry = searchInflight.get(key);
       if (!entry) {
@@ -6773,7 +6708,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     }
     async function loadLanding(options) {
       options = options || {};
-      try { return await withSearchDeadline(function (signal) { return loadLandingWithin(Object.assign({}, options, { signal: signal })); }, options.signal); }
+      try { return await loadLandingWithin(options); }
       catch (error) { if (error.code === 'SEARCH_TIMEOUT') searchScopePromise = null; throw error; }
     }
     async function loadLandingWithin(options) {
@@ -6789,8 +6724,12 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var exclusions = searchExclusions({}, true), containers = exclusions.trees, excluded = exclusions.pages;
       function validPageID(id) { return (typeof id === 'string' || Number.isSafeInteger(id)) && /^[1-9]\d{0,19}$/.test(String(id)); }
       search.buildCQL({}, { rootPageId: pageId, spaceKey: configuredSearchSpace, excludeIds: excluded, excludeAncestorIds: containers });
-      await waitForDiscoverySession(options.signal,options.revalidateSession);
-      var space = await waitForSearchSpace(options.signal);
+      // Each read has its own deadline. Optional counts must not consume the
+      // latest-articles budget or cancel already successful results.
+      var space = await withSearchDeadline(async function(signal) {
+        await waitForDiscoverySession(signal,options.revalidateSession);
+        return waitForSearchSpace(signal);
+      }, options.signal);
       throwIfAborted(options.signal);
       var output = { recent: [], areas: {}, recentReady: false, complete: false }, validKeys = [];
       function errorValue(error) { return { code: error.code || 'LOAD_ERROR', status: error.status, message: error.message || 'Confluence could not load this content.' }; }
@@ -6820,7 +6759,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           var cql = search.buildCQL({}, { rootPageId: pageId, spaceKey: space, excludeAncestorIds: containers }) + ' AND id IN (' + ids.join(', ') + ')';
           var url = endpoint('/rest/api/content/search');
           url.search = new URLSearchParams({ cql: cql, limit: String(ids.length), start: '0', expand: 'space,ancestors' }).toString();
-          var payload = await json(await request(url, { signal: options.signal }));
+          var payload = await withSearchDeadline(async function(signal) { return json(await request(url, {signal:signal})); }, options.signal);
           throwIfAborted(options.signal);
           if (!object(payload) || !Array.isArray(payload.results) || payload.results.length > ids.length) fail('Unexpected Confluence business-area response.', 'INVALID_SCOPE');
           var pages = new Map();
@@ -6859,7 +6798,9 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         }
         await Promise.all(Array.from({ length: Math.min(2, ready.length) }, worker));
       }
-      await Promise.all([recent(), areas()]);
+      // Prioritize visible articles over speculative area prefetches.
+      await recent();
+      await areas();
       throwIfAborted(options.signal);
       output.complete = true; emit();
       return output;
@@ -9081,7 +9022,9 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       try{healthService=root.WCSHealthService.create({config:options.config,identity:c.identity,storage:options.storage,withLock:options.withLock,fetch:root.fetch?.bind(root),location:root.location,getContext(id){const latest=context();return {document:latest.documents.find(d=>d.id===id&&latest.canRead(d)),people:latest.people,actor:latest.actor,canEdit:latest.canEdit(latest.documents.find(d=>d.id===id)),signedSOEID:latest.identity?.soeid};}});}catch(error){healthService={load:()=>Promise.reject(error)};}
     }
     function transientReadFailure(error){return ['NETWORK','TIMEOUT','SEARCH_TIMEOUT'].includes(error?.code)||[408,429,500,502,503,504].includes(error?.status);}
+    let bookmarksLoading=false,healthLoading=false;
     async function load(reset=false,settings={}){
+      bookmarksLoading=true;if(!settings.bookmarksOnly)healthLoading=true;
       const current=++generation,currentHealth=settings.bookmarksOnly?healthLoadGeneration:++healthLoadGeneration,wasActive=!!bookmarkService;
       if(reset||!bookmarkService){bookmarkState={available:false,bookmarks:[],revision:null,reason:'Loading saved items…'};records={};healthReady=false;healthError='Loading content health…';createServices();if(wasActive)options.refresh();}
       const services={bookmarks:bookmarkService,health:healthService},startingBookmarkRevision=bookmarkState.revision,startingHealthEpoch=healthEditEpoch;
@@ -9096,13 +9039,14 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         bookmarkState=bookmarkState.available&&transientReadFailure(error)
           ? {...bookmarkState,stale:true,reason:error.message}
           : {available:false,bookmarks:[],revision:null,reason:error.message||'Saved items are unavailable.'};
-      }).then(()=>{if(active())settings.onBookmarks?.();});
+      }).then(()=>{if(active()){bookmarksLoading=false;settings.onBookmarks?.();}});
       const health=settings.bookmarksOnly?Promise.resolve():Promise.resolve().then(()=>services.health.load(context().documents.filter(d=>context().canRead(d)))).then(next=>{
         if(!disposed&&currentHealth===healthLoadGeneration&&startingHealthEpoch===healthEditEpoch){healthReady=true;records=next;healthError='';healthRecoveryId=null;}
       },error=>{
         if(!disposed&&currentHealth===healthLoadGeneration&&startingHealthEpoch===healthEditEpoch){healthReady=false;records={};healthError=error.message||'Content health is unavailable.';healthRecoveryId=error.recoveryDocumentId||null;}
       });
       await Promise.all([bookmarks,health]);
+      if(!settings.bookmarksOnly&&currentHealth===healthLoadGeneration)healthLoading=false;
     }
     function supportsHealth(doc){return !!doc&&(!healthService?.supports||healthService.supports(doc));}
     function report(doc){return healthReady&&supportsHealth(doc)?H.evaluate(doc,records[doc.id]||null,{people:context().people,now:new Date().toISOString()}):null;}
@@ -9115,7 +9059,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(!options.publishedVersion(doc))return '';
       if(!supportsHealth(doc))return '<span class="wcs-health-tag is-unavailable" title="Content-health rules apply to documents published through the WCSpedia approval workflow.">Not managed</span>';
       const value=report(doc);
-      return value?UI.tag(value,{href:documentHref(doc,'health')}):'<a class="wcs-health-tag is-unavailable" href="'+esc(documentHref(doc,'health'))+'">Health unavailable</a>';
+      return value?UI.tag(value,{href:documentHref(doc,'health')}):healthLoading?'<span class="wcs-health-tag" role="status">Checking…</span>':'<a class="wcs-health-tag is-unavailable" href="'+esc(documentHref(doc,'health'))+'">Health unavailable</a>';
     }
     function tabs(active,reviewer=false){return '<nav class="tabs library-workspace-tabs" aria-label="Workspace sections">'+[[reviewer?'review':'documents',reviewer?'Review queue':'My documents',reviewer?url('/review'):url('/results',{view:'mine'})],...(!reviewer?[['saved','Saved items',url('/saved')]]:[]),['health','Content health',url('/health')]].map(([key,label,href])=>'<a href="'+esc(href)+'"'+(active===key?' class="active" aria-current="page"':'')+'>'+label+'</a>').join('')+'</nav>';}
     function policy(doc){const r=records[doc.id];return r?.rulesRevision?'Document rules · r'+r.rulesRevision:'Default rules';}
@@ -9132,6 +9076,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         const action='<a class="button secondary compact" href="'+esc(href)+'">'+(isHealth?'View checks':'Read document')+'<span class="sr-only"> '+esc(v.title)+'</span></a>';
         return {id:d.id,cells:isHealth?[title,Table.html(tag(d)),r?.workflowStatus||'Unavailable',c.people.find(p=>p.id===r?.assigneeId)?.name||'Unassigned',r?.dueAt?options.date(r.dueAt):'—',Table.html('<div class="wcs-data-table-actions">'+action+'</div>')]:[title,Table.html(d.nativePage?'<span class="wcs-data-table-secondary">—</span>':tag(d)),row.savedAt?options.date(row.savedAt):'—',Table.html('<div class="wcs-data-table-actions">'+action+bookmarkButton(d)+'</div>')]};
       }):[];
+      if(!available&&(isHealth?healthLoading:bookmarksLoading))return '<div class="discovery-container"><h1>'+(isHealth?'Content health':'Saved items')+'</h1>'+root.WCSLoadingOverlay.skeleton(isHealth?'Loading content checks…':'Loading saved items…')+'</div>';
       const stale=!isHealth&&bookmarkState.stale;
       const error=available&&!stale?'':'<div class="library-unavailable" role="status"><strong>'+ (isHealth?'Content health is unavailable':stale?'Showing previously loaded saved items. Refresh unavailable.':'Saved items are unavailable')+'</strong><p>'+esc(isHealth?healthError:bookmarkState.reason||'The personal preferences service is not configured.')+'</p><button type="button" class="button secondary" data-library-action="retry" data-library-retry="'+kind+'">Try again</button></div>';
       return '<div class="discovery workspace-page"><section class="press-heading page-panel"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a><span aria-hidden="true">›</span><span>'+ (isHealth?'Content health':'Saved items')+'</span></nav><div class="eyebrow">'+(isHealth?'Maintain trusted knowledge':'Your personal library')+'</div><h1>'+ (isHealth?'Keep knowledge current.':'Saved items')+'</h1><p>'+ (isHealth?'Rule-based checks, clear ownership, and a recorded path to resolution.':options.config.authoringMode==='confluence-session'?'Your saved documents, using Confluence’s Save for later.':'Your saved documents always open the current approved version.')+'</p></div></section><div class="discovery-container">'+(options.config.pageRole==='saved'?'':tabs(kind,mode))+error+'<form class="library-workspace-search" data-library-search="'+kind+'" role="search"><label><span>Search '+(isHealth?'content health':'saved items')+'</span><input name="q" type="search" maxlength="500" value="'+esc(q)+'" placeholder="Document title or reference"></label>'+(isHealth?'<label><span>Health status</span><select name="health"><option value="">All statuses</option>'+['Action required','Review due','Check needed','Healthy'].map(label=>'<option'+(filter===label?' selected':'')+'>'+label+'</option>').join('')+'</select></label>':'')+'<button class="button" type="submit">Search</button><a class="link" href="'+url('/'+kind)+'">Reset</a></form><div class="library-count" role="status">'+(available?total+' '+(total===1?'document':'documents'):'Results unavailable')+'</div>'+Table.render({label:isHealth?'Content health worklist':'Saved documents',columns,rows:tableRows,empty:{title:available?(isHealth?'No documents to maintain':'No saved documents yet'):'Unable to load this list',description:available?(q||filter?'Try another search or remove a filter.':isHealth?'Published documents you own, are assigned, or may edit appear here.':options.config.authoringMode==='confluence-session'?'Choose Save on a document, or use Confluence’s Save for later, to add it to your personal library.':'Choose Save on an approved document to add it to your personal library.'):'Try again when the service is available.'}})+(available&&pages>1?'<div class="discovery-pagination"><span>Showing '+((page-1)*8+1)+'–'+Math.min(page*8,total)+' of '+total+'</span>'+root.WCSPagination.render({totalPages:pages,currentPage:page,href:n=>url('/'+kind,{q,health:filter,page:n}),ariaLabel:isHealth?'Content health pages':'Saved item pages'})+'</div>':'')+'<p class="quiet-note library-scope-note">'+(isHealth?'Checks run when this view loads and after a document or rule changes. External resource access is verified by an accountable manager; a failed browser request is never labelled a broken resource.':'Saved items are personal to your signed-in account. Deleted documents and documents you can no longer read are excluded.')+'</p></div></div>';
@@ -9141,7 +9086,8 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       const host=container.querySelector('[data-content-health]');
       if(host){
         const c=context(),doc=c.documents.find(d=>d.id===host.dataset.contentHealth);
-        if(!healthReady){host.innerHTML='<div class="library-unavailable" role="status"><h2>Content health unavailable</h2><p>'+esc(healthError)+'</p><button type="button" class="button secondary" data-library-action="retry" data-library-retry="health">Try again</button></div>';}
+        if(!healthReady&&healthLoading){host.innerHTML=root.WCSLoadingOverlay.skeleton('Loading content checks…');}
+        else if(!healthReady){host.innerHTML='<div class="library-unavailable" role="status"><h2>Content health unavailable</h2><p>'+esc(healthError)+'</p><button type="button" class="button secondary" data-library-action="retry" data-library-retry="health">Try again</button></div>';}
         else if(doc&&!supportsHealth(doc)){host.innerHTML='<div class="library-unavailable" role="status"><h2>Content health is not managed for this page</h2><p>Rule changes and review evidence are available for documents published through the WCSpedia approval workflow.</p></div>';}
         else if(doc){
           const r=records[doc.id]||H.initial(doc),evaluation=report(doc),identity=c.identity?.soeid;
@@ -9182,7 +9128,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   'use strict';
   // A shared Confluence header may load this before the page's full bundle.
   // Keep one API and ID sequence when the same component is included again.
-  if (global.WCSLoadingOverlay && typeof global.WCSLoadingOverlay.create === 'function') return;
+  if (global.WCSLoadingOverlay && typeof global.WCSLoadingOverlay.create === 'function' && typeof global.WCSLoadingOverlay.skeleton === 'function') return;
   let sequence = 0;
   function create({target, delayMs = 0}) {
     const doc = target.ownerDocument, pending = new Set();
@@ -9281,7 +9227,12 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     global.addEventListener('pagehide', destroy);
     return {show, progress, hide, wait, destroy};
   }
-  global.WCSLoadingOverlay = {create};
+  function skeleton(label = 'Loading documents…') {
+    const safe = String(label).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    return '<div class="wcs-loading-skeleton" role="status"><span class="sr-only">'+safe+'</span><div aria-hidden="true">'+
+      Array.from({length:3}, () => '<div class="wcs-skeleton-card"><i></i><i></i><i></i></div>').join('')+'</div></div>';
+  }
+  global.WCSLoadingOverlay = {create, skeleton};
 })(window);
 
 ;
@@ -9344,16 +9295,28 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   function placeholder() {
     return '<svg class="wcs-insights-placeholder" viewBox="0 0 480 300" aria-hidden="true" focusable="false"><rect width="480" height="300" fill="#eaf1fc"/><circle cx="408" cy="36" r="138" fill="#dbe7fa"/><circle cx="60" cy="290" r="125" fill="#d5e3fa"/><path d="M64 211C170 88 310 82 420 172" fill="none" stroke="#b9cff3" stroke-width="2"/><rect x="148" y="63" width="184" height="178" rx="16" fill="#fff"/><path d="M182 107h116M182 125h82M182 189h116M182 207h64" stroke="#bdcde1" stroke-width="8" stroke-linecap="round"/><path d="M190 160h18l15-22 20 35 18-22h29" fill="none" stroke="#255be3" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="333" cy="216" r="28" fill="#255be3"/><path d="M322 216h22m-9-9 9 9-9 9" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   }
+  // Stable pseudo-random selection from the 50-image library. A new document ID
+  // gets its own choice; rerenders, sorting and reloads never reshuffle it.
+  function fallbackImage(item, options) {
+    var id=text(item.id || item.url || item.title), hash=2166136261;
+    for(var i=0;i<id.length;i++) hash=Math.imul(hash^id.charCodeAt(i),16777619)>>>0;
+    var file='wcs-insight-cover-'+String(hash%50+1).padStart(2,'0')+'.jpg';
+    var host=text(options.attachmentPageId),context=text(options.contextPath || '/confluence').replace(/\/$/,'');
+    if(/^[1-9]\d{0,19}$/.test(host)&&/^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/.test(context))
+      return safeUrl(context+'/download/attachments/'+host+'/'+file+'?api=v2',options.baseUrl);
+    return safeUrl('assets/insights-covers/'+file,options.baseUrl);
+  }
   function card(item, options) {
     var url = safeUrl(item.url, options.baseUrl), cover = item.cover && (typeof item.cover === 'string' ? item.cover : item.cover.src || item.cover.url);
     cover = safeUrl(cover, options.baseUrl);
+    var fallback=fallbackImage(item,options), image=cover||fallback;
     var area = (options.areas || []).find(function (a) { return a.id === item.area || a.id === item.category; });
     var tags = tagsFor(item), topic = tags[0] || area && (area.title || area.name) || item.type;
     var author = typeof item.author === 'string' ? item.author : item.author && (item.author.name || item.author.displayName);
     var updated = displayDate(item.updatedAt || item.updated), label = item.title || 'Untitled insight';
     return '<article class="wcs-insights-card'+(!cover?' wcs-insights-card--text':'')+'" data-wcs-insights-document="'+esc(item.id)+'">'+
       (url?'<a class="wcs-insights-card-link" href="'+esc(url)+'">':'<div class="wcs-insights-card-link">')+
-      '<div class="wcs-insights-cover">'+(cover?'<img src="'+esc(cover)+'" alt="" loading="lazy" decoding="async" width="480" height="300">':placeholder())+'</div>'+
+      '<div class="wcs-insights-cover">'+(image?'<img src="'+esc(image)+'" data-wcs-cover-fallback="'+esc(fallback)+'"'+(!cover?' data-wcs-cover-default="true"':'')+' alt="" loading="lazy" decoding="async" width="800" height="500">':placeholder())+'</div>'+
       '<div class="wcs-insights-card-body"><p class="wcs-insights-topic">'+esc(topic)+'</p><h2>'+esc(label)+'</h2>'+
       (item.summary?'<p class="wcs-insights-summary">'+esc(item.summary)+'</p>':'')+
       '<div class="wcs-insights-card-footer"><span>'+esc(content.typeLabel(item.type))+(updated?' · '+esc(updated):'')+(author?'<span class="wcs-insights-author">'+esc(author)+'</span>':'')+'</span>'+(url?icon('arrow'):'')+'</div></div>'+(url?'</a>':'</div>')+'</article>';
@@ -9398,6 +9361,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     function mediaError(event) {
       var img = event.target; if (!img.matches || !img.matches('.wcs-insights-cover img')) return;
       var cover = img.closest('.wcs-insights-cover'), card = img.closest('.wcs-insights-card');
+      if (img.dataset.wcsCoverDefault!=='true' && img.dataset.wcsCoverFallback) {img.dataset.wcsCoverDefault='true';img.src=img.dataset.wcsCoverFallback;return;}
       if (cover) cover.innerHTML = placeholder(); if (card) card.classList.add('wcs-insights-card--text');
     }
     function key(event) {
@@ -9681,5 +9645,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['entitlements'] = { version: '0ea73ca4749c' };
+  modules['entitlements'] = { version: 'e8e2e3323db8' };
 })();

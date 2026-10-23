@@ -20,7 +20,7 @@
   }
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['review']?.version !== '0ea73ca4749c') {
+  if (!window.WCSPageModules || window.WCSPageModules['review']?.version !== 'e8e2e3323db8') {
     failPage('Load wcspedia-reviewer-workspace.js before wcspedia-reviewer-workspaceHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }
@@ -35,7 +35,8 @@
   // inside the HTML macro or change the existing header's height/overflow.
   root.style.removeProperty('--wcs-available-height');
   const loading=window.WCSLoadingOverlay.create({target:root,delayMs:200});
-  let adapter, session;
+  let adapter, session, bootFailed=false;
+  const startupController=new AbortController();
   function isNativeDiscoveryRoute(){
     const [path,query='']=window.WCSNavigation.routeHash(config,location.hash).slice(1).split('?'),view=new URLSearchParams(query).get('view');
     return path.startsWith('/published/')||path==='/'||path==='/insights'||path==='/search'||path==='/saved'&&config.authoringMode==='confluence-session'||path.startsWith('/topic/')||path==='/results'&&(!view||view==='published');
@@ -54,21 +55,15 @@
     if(session.discoveryOnly)return true;
     return !!session.workspaceScope&&session.workspaceScope!=='all'&&session.workspaceScope!==requestedWorkspaceScope();
   }
-  // Only the landing screen owns the full-page branded introduction. Other
-  // pages keep the header usable and report pending work in their own content.
-  function isLandingScreen(){
-    return (config.pageRole||'home')==='home'&&window.WCSNavigation.routeHash(config,location.hash).split('?')[0]==='#/';
-  }
-  function showLoading(message){
-    if(isLandingScreen())loading.show(message);
-  }
-  // A pending landing splash must not follow navigation into another view.
-  window.addEventListener('hashchange',()=>{if(!isLandingScreen())loading.hide();});
+  // Every page uses the same bounded startup overlay. Route changes dismiss
+  // the old wait; background refreshes keep the current page interactive.
+  function showLoading(message){ loading.show(message); }
+  window.addEventListener('hashchange',()=>loading.hide());
   showLoading('Loading WCSpedia…');
-  root.replaceChildren();
+  root.innerHTML=window.WCSLoadingOverlay.skeleton('Loading your page…');
   try {
     if(config.mode==='embedded') session={data:window.WCSData,actorId:'alex',canSubmit:true,mode:'embedded'};
-    else { adapter=window.WCSConfluence.create(config); session=await loading.wait(adapter.load({discoveryOnly:live&&isNativeDiscoveryRoute(),workspaceScope:requestedWorkspaceScope()})); }
+    else { adapter=window.WCSConfluence.create(config); session=await loading.wait(adapter.load({signal:startupController.signal,discoveryOnly:live&&isNativeDiscoveryRoute(),workspaceScope:requestedWorkspaceScope()})); }
     if(!session.data || !Array.isArray(session.data.documents)) throw new Error('The knowledge data could not be loaded.');
     loading.progress(1,3,'Loading saved items and content checks…');
   let data=session.data;
@@ -281,7 +276,7 @@
     return ['NETWORK','TIMEOUT','SEARCH_TIMEOUT'].includes(error?.code)||[408,429,500,502,503,504].includes(error?.status);
   }
   function nativeLandingMessage() {
-    if(!nativeLanding.recentReady&&['idle','loading'].includes(nativeLanding.status))return '<p class="quiet-note" role="status">Loading the latest documents…</p>';
+    if(!nativeLanding.recentReady&&['idle','loading'].includes(nativeLanding.status))return window.WCSLoadingOverlay.skeleton('Loading the latest documents…');
     const error=nativeLanding.error||nativeLanding.recentError;
     if(error)return (nativeLanding.recent.length?'<div class="featured-grid">'+nativeLanding.recent.map(nativeFeaturedCard).join('')+'</div>':'')+'<div class="library-unavailable" role="alert"><strong>'+ (nativeLanding.recent.length?'Showing previously loaded documents. Refresh unavailable.':'Latest documents are unavailable')+'</strong><p>'+esc(error.message||'Unable to load child pages from Confluence.')+'</p><button class="button secondary" data-action="retry-native-landing">Try again</button></div>';
     if(!nativeLanding.recentReady)return '<p class="quiet-note">Search or browse a business area to find documents.</p><button class="button secondary" data-action="retry-native-landing">Load latest documents</button>';
@@ -336,7 +331,7 @@
     };
     try{
       if(typeof adapter.loadLanding!=='function')throw new Error('Update the landing-page scripts to load native Confluence documents.');
-      const result=await adapter.loadLanding({signal:controller.signal,revalidateSession:force,areaIds:data.areas.map(a=>a.id),onUpdate:result=>accept(result,result.complete===true)});
+      const result=await adapter.loadLanding({signal:controller.signal,revalidateSession:force,areaIds:force&&retained.recentReady&&!retained.countsError&&!Object.values(retained.areas||{}).some(a=>a.error)?[]:data.areas.map(a=>a.id),onUpdate:result=>accept(result,result.complete===true)});
       if(!current())return;
       accept(result,true);
     }catch(error){
@@ -384,7 +379,7 @@
     const topicFocused=host.contains(active)&&!!active.closest('.wcs-insights-topic-filter');
     insightsView?.destroy();window.WCSUI.destroy(host);
     const state=insightsState||{items:[],loading:live,error:'',next:null};
-    host.innerHTML=window.WCSInsights.render({documents:live?state.items:localInsights(),areas:data.areas,baseUrl:location.href,filter:insightsFilter(),types:typeUI.INSIGHT_CHOICES,prefiltered:live,limit:live?Math.max(9,state.items.length):insightsLimit,complete:!live||!state.next,hasMore:live&&!!state.next,loading:!!state.loading,appending:!!state.retryAppend,error:state.error||''});
+    host.innerHTML=window.WCSInsights.render({documents:live?state.items:localInsights(),areas:data.areas,baseUrl:location.href,attachmentPageId:window.WCS_CONFIG?.attachmentPageId,contextPath:window.WCS_CONFIG?.contextPath||'/confluence',filter:insightsFilter(),types:typeUI.INSIGHT_CHOICES,prefiltered:live,limit:live?Math.max(9,state.items.length):insightsLimit,complete:!live||!state.next,hasMore:live&&!!state.next,loading:!!state.loading,appending:!!state.retryAppend,error:state.error||''});
     insightsView=window.WCSInsights.bind(host,{
       onFilter:filter=>{insightsLimit=9;go(url('/insights',{...filter,type:filter.type==='all'?'':filter.type}));},
       onMore:()=>{if(live)loadInsights(true);else{insightsLimit+=9;paintInsights();}},
@@ -490,6 +485,7 @@
   function loadLibrary(reset=false,settings={}){
     if(!library||!libraryNeeded())return Promise.resolve();
     libraryStarted=true;return library.load(reset,{...settings,onBookmarks:()=>{
+      if(bootFailed)return;
       if(route().path==='/saved'&&!editor&&!modal&&root.isConnected){
         const field=root.querySelector('[data-library-search="saved"] input[name="q"]');
         const typed=field?.value,focused=field===document.activeElement,selection=field?[field.selectionStart,field.selectionEnd]:null;
@@ -505,9 +501,10 @@
     if(fullSessionLoading?.scope===scope)return;
     cancelFullSession();
     const pending={controller:new AbortController(),scope};fullSessionLoading=pending;fullSessionError=null;
-    Promise.resolve().then(()=>adapter.load({signal:pending.controller.signal,workspaceScope:pending.scope})).then(next=>{
+    showLoading('Loading your workspace…');
+    loading.wait(Promise.resolve().then(()=>adapter.load({signal:pending.controller.signal,workspaceScope:pending.scope}))).then(next=>{
       if(fullSessionLoading!==pending||pending.controller.signal.aborted)return;
-      fullSessionLoading=null;refreshSession(next);
+      loading.hide();fullSessionLoading=null;refreshSession(next);
       const related=loadLibrary(true);
       if(!isNativeDiscoveryRoute())render();
       // Re-evaluate saved items and health against the newly authorized working
@@ -515,11 +512,11 @@
       void related.then(()=>{if(!isNativeDiscoveryRoute()&&!editor&&!modal&&root.isConnected)render();},()=>{});
     },error=>{
       if(fullSessionLoading!==pending||pending.controller.signal.aborted)return;
-      fullSessionLoading=null;fullSessionError=error;fullSessionErrorScope=pending.scope;
+      loading.hide();pending.controller.abort();fullSessionLoading=null;fullSessionError=error;fullSessionErrorScope=pending.scope;
       if(!isNativeDiscoveryRoute())render();
     });
   }
-  function cancelFullSession(){fullSessionLoading?.controller.abort();fullSessionLoading=null;fullSessionError=null;}
+  function cancelFullSession(){if(fullSessionLoading)loading.hide();fullSessionLoading?.controller.abort();fullSessionLoading=null;fullSessionError=null;}
   async function fetchNativeBrowse(options,controller){
     const key=nativeBrowseKey(options),pending=nativePrefetch?.key===key?nativePrefetch:null;
     if(pending)nativePrefetch=null;else cancelNativePrefetch();
@@ -582,7 +579,7 @@
     const options=nativeSearchOptions(),values=nativeSearchValues(options),params=route().params;
     const page=Math.max(1,Math.min(100000,parseInt(params.get('page'),10)||1)),limit=6,queryKey=JSON.stringify(values);
     mount.setAttribute('aria-busy','true');
-    mount.innerHTML='';count.textContent='Searching…';setSearchBusy(true);
+    mount.innerHTML=window.WCSLoadingOverlay.skeleton('Searching documents…');count.textContent='Searching…';setSearchBusy(true);
     const searchButton=root.querySelector('form[data-search] button[type=submit]');
     searchButton?.setAttribute('data-wcs-search-pending','true');
     try {
@@ -898,7 +895,7 @@
     if(needsWorkspaceSession()){
       if(fullSessionErrorScope!==requestedWorkspaceScope())fullSessionError=null;
       window.WCSUI.destroy(root);
-      root.innerHTML=fullSessionError?'<div class="library-unavailable" role="alert"><strong>This page could not load</strong><p>'+esc(fullSessionError.message)+'</p><button class="button secondary" data-action="retry-workspace-session">Try again</button></div>':'';
+      root.innerHTML=fullSessionError?'<div class="library-unavailable" role="alert"><strong>This page could not load</strong><p>'+esc(fullSessionError.message)+'</p><button class="button secondary" data-action="retry-workspace-session">Try again</button></div>':window.WCSLoadingOverlay.skeleton('Loading your workspace…');
       if(!fullSessionError)loadFullSession();
       cancelNativeLanding();return;
     }
@@ -1069,7 +1066,7 @@
   document.addEventListener('visibilitychange',()=>{scheduleDocumentView();resumeVisibleReads();});
   window.addEventListener('focus',()=>resumeVisibleReads());
   window.addEventListener('online',()=>resumeVisibleReads());
-  window.addEventListener('pagehide',()=>{publishedRead?.controller?.abort();publishedRead=null;clearTimeout(viewTimer);viewVisit=null;dismissSuggestions();cancelChildSearch();stopInsights();clearNativeBrowse();cancelFullSession();});
+  window.addEventListener('pagehide',()=>{loading.hide();publishedRead?.controller?.abort();publishedRead=null;clearTimeout(viewTimer);viewVisit=null;dismissSuggestions();cancelChildSearch();stopInsights();clearNativeBrowse();cancelFullSession();});
   window.addEventListener('pageshow',event=>{
     if(!event.persisted||!live)return;
     if(!preparePublishedReader())return;
@@ -1095,7 +1092,7 @@
   const libraryLoading=loadLibrary(true);
   if(live)render();
   const nativeDiscoveryReady=live&&(route().path.startsWith('/published/')||!!root.querySelector('#native-search-results,#native-landing-documents,#wcs-insights-content'));
-  if(nativeDiscoveryReady){
+  if(nativeDiscoveryReady||live&&route().path!=='/saved'){
     // The authorized page and CQL search are ready to use. Saved items and
     // health checks have their own states and must not keep discovery inert.
     loading.progress(3,3,'Search is ready.');
@@ -1120,7 +1117,7 @@
   }
   window.addEventListener('storage',event=>{if(!live&&event.key&&(event.key==='wcspedia.bookmarks.v1'||event.key===window.WCSHealthService.STORE)&&!editor&&!modal&&!root.querySelector('[aria-modal="true"]'))library.load().then(()=>{if(!editor&&!modal&&!root.querySelector('[aria-modal="true"]'))render();});});
   } catch(error) {
-    loading.hide();
+    bootFailed=true;startupController.abort();loading.hide();
     const box=document.createElement('div');box.className='boot-state';box.setAttribute('role','alert');
     const title=document.createElement('h1');title.textContent='WCSpedia could not load';title.tabIndex=-1;
     const detail=document.createElement('p');detail.textContent=error.message;

@@ -24,7 +24,7 @@ Before use, restrict viewing of Working page **3961735834** to the authoring/rev
 
 Read **[the native setup and recovery guide](templates/NATIVE-SPACE-SETUP.md)** before rollout. It explains storage, the two-account acceptance check, migration limits and cooperative approval. Native Confluence permissions remain authoritative. Local tests do not verify your internal server.
 
-The six page pairs are Landing, My workspace, Reviewer workspace, Saved items, Entitlements and Insights. Each page fragment loads its matching logic `.js` and `HTMLPage.js`. The navbar owns the single Add document widget; live page code does not mount another. It opens the existing My workspace editor. On denied access/setup errors it stays visible but disabled, with the reason in its tooltip and the console message beginning `[WCSpedia Add document]`. The style marker is a manual marker for native document pages only. The comments scripts in the navbar are background helpers: they add no Load comments control. Comments load automatically near the bottom of eligible child articles, with an in-article retry if loading fails. Only Landing uses the splash.
+The six page pairs are Landing, My workspace, Reviewer workspace, Saved items, Entitlements and Insights. Each page fragment loads its matching logic `.js` and `HTMLPage.js`. The navbar owns the single Add document widget; live page code does not mount another. It opens the existing My workspace editor. On denied access/setup errors it stays visible but disabled, with the reason in its tooltip and the console message beginning `[WCSpedia Add document]`. The style marker is a manual marker for native document pages only. The comments scripts in the navbar are background helpers: they add no Load comments control. Comments load automatically near the bottom of eligible child articles, with an in-article retry if loading fails. All application pages use the same delayed startup overlay; background refreshes stay interactive.
 
 The policy filename is exactly **`entitlements.json`**, on **3962195316**. Keep its `schemaVersion`, `revision`, `records` and `audit` fields; these are data/history controls, not filename suffixes. If fields were removed, restore them from the last valid policy attachment without resetting grants or audit history. `wcspedia.entitlements.v1` is an internal native content-property key, not a filename or a second JSON to upload. Do not remove native Confluence versions or pointer records. An administrator's JSON creation grant still requires native permissions and the restricted Working page.
 
@@ -44,7 +44,7 @@ Stored types and history are preserved. Procedures, playbooks and checklists app
 
 ## Returning after idle
 
-The landing page and Saved items refresh their visible list when the tab becomes visible/focused again after 30 seconds, or Saved items returns from the browser back-forward cache. Events share one in-flight refresh; there is no polling, automatic write, full-page reload or non-landing splash. Saved rows are displayed independently of content-health completion, and Saved-only refreshes do not reload health.
+The landing page and Saved items refresh their visible list when the tab becomes visible/focused again after 30 seconds, or Saved items returns from the browser back-forward cache. Events share one in-flight refresh; there is no polling, automatic write, full-page reload or background splash. Saved rows are displayed independently of content-health completion, and Saved-only refreshes do not reload health.
 
 Previously loaded results remain visible with a refresh warning after a network timeout or temporary server failure. Authentication, permission, changed-account and malformed-response failures clear the affected results. A successful empty response remains an empty result; failures are never treated as an empty success. Landing search rechecks a previously established session after 60 seconds, sharing the check across simultaneous searches. Signing in again as the same account permits retry; a changed account requires reloading the page. These checks cannot extend the internal Confluence/SSO session.
 
@@ -214,6 +214,81 @@ attachments. For an already published native article, add
 let its next normal WCSpedia publication add it. Do not paste this snippet in
 navBar. Keep the existing shared CSS. Hard-refresh open tabs after updating the
 attachments. Existing live JSON and native article bodies are not bulk-replaced.
+
+
+### October 23: native sidebar and 15 Insights covers
+
+The reader sidebar now styles Confluence's existing sidebar only. The previous
+Knowledge library header, second collapse button, custom icon rail, fixed width
+and content-offset overrides have been removed. Native arrows, scroll layout,
+Space tools and collapse/expand behaviour remain with Confluence. There is no
+replacement sidebar if the host does not render one. Scope remains document/
+article readers only; the loader stays out of navBar.
+
+Upload all 15 `wcs-insight-cover-01.jpg` through `wcs-insight-cover-15.jpg` from
+`attachments/` to the existing attachment host along with the updated scripts
+and stylesheet. Each is an 800×500 JPEG, under 160 KB; all 15 total about 1.3 MB.
+Cards keep their own valid cover first. Otherwise a stable hash of the article ID
+chooses one fallback, so filter changes and reloads do not shuffle covers. Images
+load lazily from Confluence attachments; no external image calls are needed. If
+both an authored cover and the fallback fail, the inline SVG remains the final
+fallback. Covers are decorative and do not change article metadata or saved JSON.
+
+`licenses/insights-cover-sources.json` records the original Citi article and image
+URLs. These are downloaded Citi images, not newly created artwork or a grant of
+reuse rights. Original source: https://www.citigroup.com/global/insights/all .
+
+Replace attachments, then hard-refresh existing tabs so older sidebar scripts
+are unloaded. Do not add a second navBar, stylesheet, or page tree macro.
+
+
+### 50-image library update
+
+The current package contains `wcs-insight-cover-01.jpg` through
+`wcs-insight-cover-50.jpg`. Upload all 50 JPEGs to attachment host **3962195316**.
+Each new Insight's identifier selects a pseudo-random fallback from this pool;
+the same article keeps the same choice across readers, sorting, filtering and
+reloads. Choices may repeat across different articles. This is a card fallback,
+not a rewrite of the author's saved cover or document JSON. Explicit covers
+continue to take priority. Existing no-cover cards also use the expanded pool.
+The first 15 image filenames are preserved; replacing the page logic enables the
+50-image selection. All source URLs are recorded in the included source manifest.
+
+### Loading and performance update — 23 October 2026
+
+Upload the current `attachments/`, including `wcspedia-style.css`, to the
+existing attachment host. Use the matching page HTML snippets from this package,
+then hard-refresh open tabs so they load the replaced scripts and stylesheet. Keep the existing navBar; do not add a second overlay widget or CSS
+file. Preserve live JSON and permissions.
+
+All application pages now use the same delayed startup overlay. Fast loads do
+not flash it. Pending lists have animated skeletons; a background refresh does
+not make a usable page inert. Errors and navigation release the overlay. Saved
+items no longer show an unavailable/empty-list error while their first read is
+still pending. Horizon reduced-motion settings retain functional loading motion.
+
+Landing recent articles load before optional area counts. Each read has its own
+bounded deadline instead of one deadline shared by the entire landing load.
+Idle refreshes reuse completed area counts and recheck the visible recent list.
+Authorized workspace content does not wait for auxiliary saved-item/health reads.
+
+Search responses are cached in memory for up to two minutes (24 entries per
+adapter). Query, filter and pagination keys remain separate. Session validation,
+identity/access refreshes and writes retain their existing cache invalidation;
+no permissions, private drafts or document bodies are persisted in localStorage
+or a service worker. A reader or write still makes its own native access checks.
+Existing content is retained only on transient read failures, never on an
+identity or authorization failure. Failed reads are not cached as empty lists.
+
+Publishing transfers at most three independent attachments concurrently and
+waits for started transfers to settle before exposing an upload failure. Byte
+verification, native version checks, request IDs and recovery checkpoints are
+preserved. Existing publication labels are not posted again if already present.
+The 50-image pool remains a fallback only: an author's valid cover wins; a missing
+or failed cover selects the article's stable image from the pool.
+
+These are local implementation and fixture-test results. Confluence server
+latency and the Horizon network still determine live response times.
 
 ## Configured page IDs
 
