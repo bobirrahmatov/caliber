@@ -24,7 +24,7 @@ Before use, restrict viewing of Working page **3961735834** to the authoring/rev
 
 Read **[the native setup and recovery guide](templates/NATIVE-SPACE-SETUP.md)** before rollout. It explains storage, the two-account acceptance check, migration limits and cooperative approval. Native Confluence permissions remain authoritative. Local tests do not verify your internal server.
 
-The six page pairs are Landing, My workspace, Reviewer workspace, Saved items, Entitlements and Insights. Each page fragment loads its matching logic `.js` and `HTMLPage.js`. The navbar owns the single Add document widget; live page code does not mount another. It opens the existing My workspace editor. On denied access/setup errors it stays visible but disabled, with the reason in its tooltip and the console message beginning `[WCSpedia Add document]`. The style marker is a manual marker for native document pages only. The comments scripts in the navbar are background helpers: they add no Load comments control. Comments load automatically near the bottom of eligible child articles, with an in-article retry if loading fails. All six application macros now open the same overlay immediately, before downloading either page script. The application adopts that overlay and releases it when the visible content or a retryable error is ready; there is no startup skeleton or 200 ms delay. Background refreshes stay interactive.
+The seven page pairs are Landing, My workspace, Reviewer workspace, Saved items, Entitlements, Insights and FAQs. Each page fragment loads its matching logic `.js` and `HTMLPage.js`. The navbar owns the single Add document widget; live page code does not mount another. It opens the existing My workspace editor. On denied access/setup errors it stays visible but disabled, with the reason in its tooltip and the console message beginning `[WCSpedia Add document]`. The style marker is a manual marker for native document pages only. The comments scripts in the navbar are background helpers: they add no Load comments control. Comments load automatically near the bottom of eligible child articles, with an in-article retry if loading fails. All seven application macros now open the same overlay immediately, before downloading either page script. The application adopts that overlay and releases it when the visible content or a retryable error is ready; there is no startup skeleton or 200 ms delay. Background refreshes stay interactive.
 
 The policy filename is exactly **`entitlements.json`**, on **3962195316**. Keep its `schemaVersion`, `revision`, `records` and `audit` fields; these are data/history controls, not filename suffixes. If fields were removed, restore them from the last valid policy attachment without resetting grants or audit history. `wcspedia.entitlements.v1` is an internal native content-property key, not a filename or a second JSON to upload. Do not remove native Confluence versions or pointer records. An administrator's JSON creation grant still requires native permissions and the restricted Working page.
 
@@ -40,7 +40,7 @@ The latest interface update fixes Entitlements footer controls/code formatting, 
 
 Insights has four groups: Guides, Blogs, Training and Reports. The floating creation menu and editor offer those four plus Job aids. Only Job aids require a business area, reviewer and manager. Topics remain optional; Processes and Regions are under More organisation options. My Workspace uses the shared floating button instead of a second creation button.
 
-Stored types and history are preserved. Procedures, playbooks and checklists appear under Guides; knowledge sharing under Training; reference articles, templates and existing FAQ articles under Reports. The five general help FAQs appear below the latest articles on the landing page. New MDX uses Job aid, Guide, Blog, Training, or Report.
+Stored types and history are preserved. Procedures, playbooks and checklists appear under Guides; knowledge sharing under Training; reference articles, templates and existing FAQ articles under Reports. Ten general help FAQs appear on the dedicated FAQ page (3973992401), available from the existing header. New MDX uses Job aid, Guide, Blog, Training, or Report.
 
 ## Returning after idle
 
@@ -310,11 +310,26 @@ Test using Confluence's profile menu in Light and Dark, and switch with an artic
 
 ## Startup overlay and deletion update — 23 October 2026
 
-Upload all six page JavaScript pairs (`wcspedia-landing`, `wcspedia-my-workspace`, `wcspedia-reviewer-workspace`, `wcspedia-saved-items`, `wcspedia-entitlements`, `wcspedia-insights`, each `.js` and `HTMLPage.js`) to **3962195316**. Replace the existing HTML macro on each matching page with its configured file from `html/`. Updating JavaScript alone cannot start the overlay before its attachment downloads. Keep the existing navBar include and its one shared stylesheet; do not add another loader to navBar. Keep live JSON attachments unchanged.
+Upload all seven page JavaScript pairs (`wcspedia-landing`, `wcspedia-my-workspace`, `wcspedia-reviewer-workspace`, `wcspedia-saved-items`, `wcspedia-entitlements`, `wcspedia-insights`, `wcspedia-faq`, each `.js` and `HTMLPage.js`) to **3962195316**. Replace the existing HTML macro on each matching page with its configured file from `html/`. Updating JavaScript alone cannot start the overlay before its attachment downloads. Keep the existing navBar include and its one shared stylesheet; do not add another loader to navBar. Keep live JSON attachments unchanged.
 
 The inline macro starts the loader before the large scripts, transfers the same instance to the app, and exposes Retry on attachment failure or a 60-second startup deadline. Landing reveals its content once the latest list settles; area counts, metrics and health can continue independently. Native Confluence can paint its header before it executes the page HTML macro; space-only page code cannot control that earlier server-rendered frame.
 
 Successful deletion retains the originating list, search filters and pagination on the current native page. Reader links carry a validated return route through reader tabs. A directly opened reader falls back to its current host page's default view. Failed deletion stays in its confirmation dialog. Only browser navigation and read caches change; native permissions and deletion semantics are unchanged.
+
+### Clean landing and dedicated FAQs — 23 October 2026
+
+The landing page retains the original WCSpedia hero styling and heading “A world of knowledge. One place to find it.”, search and at most three compact latest-document cards. Explore, Insights and FAQs stay in the existing header without duplicate links below search. The promotional intro, department label in the landing body, business-area card grid and embedded FAQs were removed. The existing shared header branding is unchanged. Business areas remain available through Explore filters. Home requests only the three latest documents, without business-area count warmups.
+
+The FAQ page uses the Saved page's heading/container layout, with ten initially expanded answers and instant local question/answer search. It does not fetch document data, entitlements, analytics or saved items. It follows the same immediate macro loading overlay and shared light/dark stylesheet. Its configured Confluence page ID is **3973992401**; it is accessible through the existing header.
+
+Installation from `confluence-ready/`:
+
+1. Upload the updated `attachments/` files to the existing attachment host **3962195316**, replacing matching attachments. Keep the shared stylesheet inclusion already in navBar. Preserve live JSON.
+2. Replace the landing page's existing HTML macro on **3954553300** with `html/wcspedia-landing.html`.
+3. On FAQ page **3973992401**, add one HTML macro containing `html/wcspedia-faq.html`. This loads `wcspedia-faq.js` and `wcspedia-faqHTMLPage.js`; do not paste their JavaScript as page text.
+4. Refresh the existing page macros from the same package as you update their script pairs, so their page mappings include FAQs. Refresh the existing `html/wcspedia-navbar.html` helper block in navBar to exclude the FAQ page from article comments; preserve your native header and logo. Do not add a second navbar or place the FAQ page macro there.
+
+The package is prepared and tested locally; deployment on the internal Confluence instance is a separate installation step.
 
 ## Configured page IDs
 
@@ -328,6 +343,7 @@ Space key: `wcspedia`. Context: `/confluence`. Attachment page: `3962195316`.
 | Saved items | `3961735759` | `html/wcspedia-saved-items.html` |
 | Entitlements | `3961735763` | `html/wcspedia-entitlements.html` |
 | Insights | `3961735728` | `html/wcspedia-insights.html` |
+| FAQs | `3973992401` | `html/wcspedia-faq.html` |
 
 Insights parent: `3961735728`. Restricted Working parent: `3961735834`.
 

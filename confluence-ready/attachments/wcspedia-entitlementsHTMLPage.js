@@ -22,7 +22,7 @@
   }
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['entitlements']?.version !== 'a4d7c14d8c57') {
+  if (!window.WCSPageModules || window.WCSPageModules['entitlements']?.version !== 'a9beed507df9') {
     failPage('Load wcspedia-entitlements.js before wcspedia-entitlementsHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }
@@ -66,6 +66,7 @@
   showLoading('Loading WCSpedia…');
   root.replaceChildren();
   try {
+    if(config.pageRole==='faq'){window.WCSFAQ.mount(root,config);loading.hide();return;}
     if(config.mode==='embedded') session={data:window.WCSData,actorId:'alex',canSubmit:true,mode:'embedded'};
     else { adapter=window.WCSConfluence.create(config); session=await loading.wait(adapter.load({signal:startupController.signal,discoveryOnly:live&&isNativeDiscoveryRoute(),workspaceScope:requestedWorkspaceScope()})); }
     if(!session.data || !Array.isArray(session.data.documents)) throw new Error('The knowledge data could not be loaded.');
@@ -268,12 +269,12 @@
   }
   function wordmark() {
     const logo=config.brandLogoUrl||(!live?'assets/wcspedia-logo.png':'');
-    return '<a class="discovery-brand" href="#/" aria-label="WCSpedia home">'+(logo?'<img class="discovery-brand-logo" src="'+esc(logo)+'" width="112" height="112" alt="" decoding="async">':'')+'<span class="discovery-brand-copy"><span class="discovery-wordmark">WCS<span>pedia</span></span><span class="discovery-brand-motto">Learn. Share. Grow.</span></span></a><div class="discovery-brand-label">Wealth Credit Services knowledge base</div>';
+    return '<a class="discovery-brand" href="#/" aria-label="WCSpedia home">'+(logo?'<img class="discovery-brand-logo" src="'+esc(logo)+'" width="112" height="112" alt="" decoding="async">':'')+'<span class="discovery-brand-copy"><span class="discovery-wordmark">WCS<span>pedia</span></span><span class="discovery-brand-motto">Learn. Share. Grow.</span></span></a>';
   }
   function discoveryHero(title,intro) {
     return '<section class="discovery-hero page-panel">'+wordmark()+'<h1>'+title+'</h1><p class="discovery-intro">'+intro+'</p>'+bigSearch()+'</section>';
   }
-  function bigSearch(query='',mode='global') { return '<div class="discovery-search-wrap"><form class="discovery-search" data-search="'+mode+'" role="search">'+icon('search')+'<label class="sr-only" for="knowledge-query">Search WCSpedia</label><input id="knowledge-query" data-suggest name="q" type="search" autocomplete="off" aria-controls="search-suggestions" aria-describedby="suggestion-status" maxlength="500" placeholder="Search documents and Insights…" value="'+esc(query)+'"><button class="discovery-search-clear" type="button" data-clear-search aria-label="Clear search" title="Clear search"'+(query?'':' hidden')+'>'+icon('close')+'</button><span class="wcs-search-spinner" data-search-loading hidden aria-hidden="true"></span><kbd aria-hidden="true">⌘ K</kbd><button class="button" type="submit">Search '+icon('arrow')+'</button></form><div class="discovery-suggestions" id="search-suggestions" aria-label="Suggested documents" hidden></div><span class="sr-only" id="suggestion-status" role="status"></span></div>'; }
+  function bigSearch(query='',mode='global') { return '<div class="discovery-search-wrap"><form class="discovery-search" data-search="'+mode+'" role="search">'+icon('search')+'<label class="sr-only" for="knowledge-query">Search WCSpedia</label><input id="knowledge-query" data-suggest name="q" type="search" enterkeyhint="search" spellcheck="false" autocomplete="off" aria-controls="search-suggestions" aria-describedby="suggestion-status" maxlength="500" placeholder="Search documents and Insights…" value="'+esc(query)+'"><button class="discovery-search-clear" type="button" data-clear-search aria-label="Clear search" title="Clear search"'+(query?'':' hidden')+'>'+icon('close')+'</button><span class="wcs-search-spinner" data-search-loading hidden aria-hidden="true"></span><button class="button" type="submit">Search</button></form><div class="discovery-suggestions" id="search-suggestions" aria-label="Suggested documents" hidden></div><span class="sr-only" id="suggestion-status" role="status"></span></div>'; }
   const insightsArea={id:'insights',title:'Insights',description:'Explore Guides, Blogs, Training and Reports.',icon:'book'};
   function discoveryAreas(){return data.areas.concat(insightsArea);}
   function areaCard(a) {
@@ -304,9 +305,9 @@
   function nativeLandingMessage() {
     if(!nativeLanding.recentReady&&['idle','loading'].includes(nativeLanding.status))return '<p class="sr-only" role="status">Loading the latest documents…</p>';
     const error=nativeLanding.error||nativeLanding.recentError;
-    if(error)return (nativeLanding.recent.length?'<div class="featured-grid">'+nativeLanding.recent.map(nativeFeaturedCard).join('')+'</div>':'')+'<div class="library-unavailable" role="alert"><strong>'+ (nativeLanding.recent.length?'Showing previously loaded documents. Refresh unavailable.':'Latest documents are unavailable')+'</strong><p>'+esc(error.message||'Unable to load child pages from Confluence.')+'</p><button class="button secondary" data-action="retry-native-landing">Try again</button></div>';
+    if(error)return (nativeLanding.recent.length?'<div class="featured-grid">'+nativeLanding.recent.slice(0,3).map(nativeFeaturedCard).join('')+'</div>':'')+'<div class="library-unavailable" role="alert"><strong>'+ (nativeLanding.recent.length?'Showing previously loaded documents. Refresh unavailable.':'Latest documents are unavailable')+'</strong><p>'+esc(error.message||'Unable to load child pages from Confluence.')+'</p><button class="button secondary" data-action="retry-native-landing">Try again</button></div>';
     if(!nativeLanding.recentReady)return '<p class="quiet-note">Search or browse a business area to find documents.</p><button class="button secondary" data-action="retry-native-landing">Load latest documents</button>';
-    return nativeLanding.recent.length?'<div class="featured-grid">'+nativeLanding.recent.map(nativeFeaturedCard).join('')+'</div>':'<p class="quiet-note" role="status">No documents are available yet. Pages beneath WCSpedia will appear here when you have access to them and Confluence has indexed them.</p>';
+    return nativeLanding.recent.length?'<div class="featured-grid">'+nativeLanding.recent.slice(0,3).map(nativeFeaturedCard).join('')+'</div>':'<p class="quiet-note" role="status">No documents are available yet. Pages beneath WCSpedia will appear here when you have access to them and Confluence has indexed them.</p>';
   }
   function nativeAreaStatus() {
     if(nativeLanding.status!=='ready'||nativeLanding.error||!nativeLanding.countsError&&!data.areas.some(a=>nativeLanding.areas[a.id]?.error))return '';
@@ -360,7 +361,7 @@
     };
     try{
       if(typeof adapter.loadLanding!=='function')throw new Error('Update the landing-page scripts to load native Confluence documents.');
-      const result=await adapter.loadLanding({signal:controller.signal,revalidateSession:force,areaIds:force&&retained.recentReady&&!retained.countsError&&!Object.values(retained.areas||{}).some(a=>a.error)?[]:data.areas.map(a=>a.id),onUpdate:result=>accept(result,result.complete===true)});
+      const result=await adapter.loadLanding({signal:controller.signal,revalidateSession:force,areaIds:[],onUpdate:result=>accept(result,result.complete===true)});
       if(!current())return;
       accept(result,true);
     }catch(error){
@@ -377,19 +378,9 @@
     const media=coverImage(d.id,cover,'feature-cover');
     return '<article class="featured-document"><a class="feature-media" tabindex="-1" aria-hidden="true" href="'+destination+'">'+media+'</a><div class="feature-body"><div class="feature-area">'+esc(typeUI.typeLabel(d.type))+' · '+esc((v.processes||[])[0]||area(d.area)?.title||'Wealth Credit Services')+'</div><h3><a href="'+destination+'">'+esc(v.title)+'</a></h3><p>'+esc(v.summary)+'</p><div class="feature-metrics"><span>By '+esc(person(d.authorId||v.createdBy).name)+'</span>'+readingMarkup(v)+viewsMarkup(d)+'</div><div class="feature-bottom"><span>Published '+date(v.publishedAt||v.approvedAt||v.createdAt)+'</span><a class="circle-link" href="'+destination+'" aria-label="Read '+esc(v.title)+'">'+icon('arrow')+'</a></div></div></article>';
   }
-  function landingFAQ() {
-    const entries=[
-      ['How do I find the right document?', 'Start with the search bar or choose a business area. Use Insights for guides, blogs, training and reports. Search results respect your Confluence access.'],
-      ['Which content type should I choose?', 'Choose Job aid for work instructions that need review and approval. Use Guides for procedures, playbooks and checklists; Blogs for stories and updates; Training for courses and shared lessons; and Reports for reports, templates and reference information.'],
-      ['What happens after I create a document?', 'Use the floating + button to open the editor. Job aids are saved as drafts in My Workspace, then submitted to the assigned reviewer and manager. Insights articles publish directly without that approval workflow, subject to your access.'],
-      ['Where can I find my drafts and saved articles?', 'My Workspace contains your drafts, submissions and published content. Use the save action on an article to keep it in Saved items for later.'],
-      ['How can I suggest a change or leave feedback?', 'Use Suggest an edit to send a proposed correction. Eligible articles also provide helpfulness feedback and a comments section when comments are enabled. Available actions depend on your Confluence permissions.']
-    ];
-    return '<section class="discovery-section wcs-home-faq" aria-labelledby="wcs-faq-heading"><div class="discovery-section-heading"><div><h2 id="wcs-faq-heading">Frequently asked questions</h2><p>A little help getting started with WCSpedia.</p></div></div>'+entries.map(([question,answer],index)=>'<div class="wcs-faq-item"><h3><button type="button" id="wcs-faq-question-'+index+'" data-action="toggle-faq" aria-expanded="false" aria-controls="wcs-faq-answer-'+index+'">'+esc(question)+icon('plus')+'</button></h3><div class="wcs-faq-answer" id="wcs-faq-answer-'+index+'" role="region" aria-labelledby="wcs-faq-question-'+index+'" aria-hidden="true" inert><div><p>'+esc(answer)+'</p></div></div></div>').join('')+'</section>';
-  }
   function home() {
     const featured=live?[]:discoverRows({sort:'updated'}).slice(0,3);
-    return '<div class="discovery">'+discoveryHero('A world of knowledge.<br><span>One place to find it.</span>','Your everyday resource for Wealth Credit Services. <br>Find the guidance you need to move forward with confidence.')+'<div class="discovery-container"><section class="discovery-section"><div class="discovery-section-heading"><div><h2>Find your starting point</h2><p>Knowledge organised around the work you do.</p></div><div class="discovery-section-links"><span class="area-total">'+data.areas.length+' business areas</span></div></div><div class="discovery-area-grid">'+discoveryAreas().map(areaCard).join('')+'</div>'+(live?'<div id="native-landing-area-status">'+nativeAreaStatus()+'</div>':'')+'</section><section class="discovery-section featured-section"><div class="discovery-section-heading"><div><h2>The latest knowledge, at your fingertips</h2><p>New perspectives, learning, and practical guidance from our teams.</p></div><a class="discovery-text-link" href="'+url('/results',{sort:'updated'})+'">Explore all documents '+icon('arrow')+'</a></div>'+(live?'<div id="native-landing-documents" aria-live="polite" aria-busy="'+['idle','loading'].includes(nativeLanding.status)+'">'+nativeLandingMessage()+'</div>':'<div class="featured-grid">'+featured.map(featuredCard).join('')+'</div>')+'</section>'+landingFAQ()+'</div></div>';
+    return '<div class="discovery wcs-home"><section class="discovery-hero page-panel">'+wordmark()+'<h1>A world of knowledge.<br><span>One place to find it.</span></h1>'+bigSearch()+'</section><div class="discovery-container"><section class="discovery-section featured-section" aria-labelledby="latest-heading"><div class="discovery-section-heading"><h2 id="latest-heading">Latest documents</h2><a class="discovery-text-link" href="'+url('/results',{sort:'updated'})+'">View all '+icon('arrow')+'</a></div>'+(live?'<div id="native-landing-documents" aria-live="polite" aria-busy="'+['idle','loading'].includes(nativeLanding.status)+'">'+nativeLandingMessage()+'</div>':'<div class="featured-grid">'+featured.map(featuredCard).join('')+'</div>')+'</section></div></div>';
   }
     const insightsTypes=typeUI.INSIGHT_TYPES;
   let insightsView=null,insightsController=null;
