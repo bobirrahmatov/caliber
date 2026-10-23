@@ -32,12 +32,12 @@
   'use strict';
   if(w.WCSReaderSidebar)return;
   var host=null,observer=null,queued=false,destroyed=false,revealOwned=false;
-  var links=new Map(),checks=new Map(),pending=[],running=0,generation=0,controllers=new Set();
+  var links=new Map(),checks=new Map(),pending=[],running=0,generation=0,controllers=new Set(),leafMarkers=new Set();
   function config(){
     var c=w.WCS_ARTICLE_DISCUSSION_CONFIG||w.WCS_ADD_DOCUMENT_CONFIG||{};
     var root=String(c.rootPageId||''),context=c.contextPath||'/confluence';
     if(!/^[1-9]\d*$/.test(root)||!c.spaceKey||!/^\/(?:[\w-]+\/?)*$/.test(context))return null;
-    return {root:root,context:context.replace(/\/$/,''),space:c.spaceKey,
+    return {menus:Object.assign({},c.areaPageIds||{},c.pageIds||{},{insights:c.insightsPageId||c.nativePublication?.insightsPageId,working:c.workingRootPageId||c.nativePublication?.workingRootPageId}),root:root,context:context.replace(/\/$/,''),space:c.spaceKey,
       excluded:[root,c.workingRootPageId,c.nativePublication?.workingRootPageId,c.insightsPageId,c.nativePublication?.insightsPageId,c.workspacePageId].concat(Object.values(c.pageIds||{}),Object.values(c.areaPageIds||{})).filter(Boolean).map(String),
       working:String(c.workingRootPageId||c.nativePublication?.workingRootPageId||'')};
   }
@@ -46,6 +46,46 @@
       if(/\/pages\/viewpage\.action$/.test(u.pathname))return /^[1-9]\d*$/.test(u.searchParams.get('pageId')||'')?u.searchParams.get('pageId'):null;
       return (u.pathname.match(/\/spaces\/[^/]+\/pages\/([1-9]\d*)(?:\/|$)/)||[])[1]||null;
     }catch(_){return null;}
+  }
+  var iconPaths={
+    insights:'M4 4h16v16H4z M8 8h8 M8 12h8 M8 16h4',
+    'credit-approval-control':'M12 3l8 4v5c0 5-8 9-8 9S4 17 4 12V7z M8 12l3 3 5-6',
+    'credit-information-management':'M3 5h18v14H3z M7 9h10 M7 13h4',
+    'credit-management-reporting':'M4 3v18h17 M8 17v-5 M13 17V7 M18 17V4',
+    'deal-closing':'M8 5V3h8v2 M5 5h14v16H5z M8 13l3 3 5-6',
+    'documentation-pledging':'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6',
+    'emea-credit-admin':'M3 12h18 M12 3c-5 5-5 13 0 18 M12 3c5 5 5 13 0 18 M21 12a9 9 0 1 1-18 0 9 9 0 1 1 18 0',
+    'loan-management':'M3 9l9-6 9 6z M5 11v8 M10 11v8 M14 11v8 M19 11v8 M3 21h18',
+    'regional-operating-manuals':'M12 5C8 2 3 4 3 4v16s5-2 9 1c4-3 9-1 9-1V4s-5-2-9 1v16',
+    mine:'M3 7h18v14H3z M8 7V3h8v4 M3 12h18 M10 12v3h4v-3',
+    review:'M12 8a3 3 0 1 1-6 0 3 3 0 1 1 6 0 M3 21v-3a6 6 0 0 1 9-5 M15 17l2 2 4-5',
+    saved:'M6 3h12v18l-6-4-6 4z',
+    entitlements:'M5 10h14v11H5z M8 10V7a4 4 0 0 1 8 0v3 M12 14v3',
+    working:'M3 7V5h6l2 2h10v13H3z M9 13h6 M12 10v6',
+    home:'M3 11l9-8 9 8 M6 9v12h12V9 M10 21v-7h4v7'
+  };
+  function nativeId(a){
+    var id=pageId(a.getAttribute('href'));if(id)return id;
+    try{var u=new URL(a.getAttribute('href'),w.location.href);if(u.origin!==w.location.origin||u.hash||!u.pathname.includes('/display/'))return null;
+      return (a.closest('.plugin_pagetree_children_span')?.id.match(/^childrenspan([1-9]\d*)-/)||[])[1]||null;
+    }catch(_){return null;}
+  }
+  function cleanTitle(a,id,record){
+    // Only the generated suffix for this exact page ID; never change stored titles.
+    var walker=d.createTreeWalker(a,4),nodes=[],node;
+    while((node=walker.nextNode()))nodes.push(node);
+    var suffix=new RegExp('\\s*[·]\\s*WCS\\s+'+id+'\\s*$');
+    for(var i=nodes.length-1;i>=0;i--){node=nodes[i];if(!node.nodeValue.trim())continue;
+      var clean=node.nodeValue.replace(suffix,'');if(clean!==node.nodeValue&&clean.trim()){
+        record.title={node:node,original:node.nodeValue,clean:clean};node.nodeValue=clean;
+      }break;
+    }
+  }
+  function markLeaves(){
+    host.querySelectorAll('.plugin_pagetree_childtoggle_container').forEach(function(marker){
+      var leaf=!marker.querySelector('a,button,[role=button],[data-type=toggle]');
+      marker.classList.toggle('wcs-native-leaf-marker',leaf);if(leaf)leafMarkers.add(marker);else leafMarkers.delete(marker);
+    });
   }
   function pump(){
     while(running<3&&pending.length){var task=pending.shift();running++;task().finally(function(){running--;pump();});}
@@ -66,14 +106,14 @@
     checks.set(key,promise);pump();return promise;
   }
   function enhance(){
-    var c=config(),epoch=generation;
+    var c=config(),epoch=generation;markLeaves();
     host.querySelectorAll('a[href]').forEach(function(a){
-      if(links.has(a)||a.matches('[role=button],[aria-expanded]')||a.closest('.acs-side-bar-footer'))return;
-      var original=a.getAttribute('href'),id=pageId(original);if(!id)return;
+      if(links.has(a)||a.matches('[role=button],[aria-expanded],.plugin_pagetree_childtoggle,[data-type=toggle]')||a.closest('.acs-side-bar-footer'))return;
+      var original=a.getAttribute('href'),id=nativeId(a);if(!id)return;
       var icon=d.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('width','16');icon.setAttribute('height','16');icon.setAttribute('aria-hidden','true');icon.setAttribute('focusable','false');icon.setAttribute('class','wcs-native-page-icon');
-      var path=d.createElementNS(icon.namespaceURI,'path');path.setAttribute('d',c&&c.excluded.includes(id)?'M3 7V5h6l2 2h10v13H3z':'M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6');icon.append(path);a.prepend(icon);
+      var path=d.createElementNS(icon.namespaceURI,'path');var menu=c&&Object.keys(c.menus).find(function(key){return String(c.menus[key])===id;});path.setAttribute('d',iconPaths[menu]||(c&&c.excluded.includes(id)?iconPaths.working:iconPaths['documentation-pledging']));icon.append(path);a.prepend(icon);
       var record={original:original,rewritten:null,icon:icon};links.set(a,record);a.setAttribute('data-wcs-native-page-link','');
-      if(!c||c.excluded.includes(id))return;
+      if(c&&c.excluded.includes(id))return;cleanTitle(a,id,record);if(!c)return;
       verified(id,c).then(function(ok){
         if(!ok||destroyed||epoch!==generation||!active()||!host?.contains(a)||a.getAttribute('href')!==original)return;
         record.rewritten=c.context+'/pages/viewpage.action?pageId='+c.root+'#/published/'+id;
@@ -89,7 +129,8 @@
   }
   function reset(){
     generation++;controllers.forEach(function(c){c.abort();});checks.clear();
-    links.forEach(function(record,a){if(record.rewritten&&a.getAttribute('href')===record.rewritten)a.setAttribute('href',record.original);record.icon.remove();a.removeAttribute('data-wcs-native-page-link');});links.clear();
+    links.forEach(function(record,a){if(record.rewritten&&a.getAttribute('href')===record.rewritten)a.setAttribute('href',record.original);if(record.title&&record.title.node.nodeValue===record.title.clean)record.title.node.nodeValue=record.title.original;record.icon.remove();a.removeAttribute('data-wcs-native-page-link');});links.clear();
+    leafMarkers.forEach(function(marker){marker.classList.remove('wcs-native-leaf-marker');});leafMarkers.clear();
     if(host)host.classList.remove('wcs-reader-navigation');
     host=null;d.body?.removeAttribute('data-wcs-reader-nav');
     if(revealOwned){revealOwned=false;d.body.classList.add('citi-hide-sidebar');}
@@ -1179,6 +1220,22 @@
   var TYPE_GROUPS = Object.freeze({Procedure:'Guide',Playbook:'Guide',Checklist:'Guide','Knowledge sharing':'Training',Reference:'Report',Template:'Report',FAQ:'Report'});
   function groupType(type) { return TYPE_GROUPS[type] || type; }
   function typeLabel(type) { return ({Guide:'Guides',Blog:'Blogs',Training:'Training',Report:'Reports','Job aid':'Job aids'})[groupType(type)] || type; }
+  function topicLabel(value) {
+    return String(value == null ? '' : value).trim().replace(/[-_]+/g,' ').replace(/\b[a-zA-Z]+\b/g,function(word){
+      if (/^(?:emea|apac|latam|uk|us|usa|eu|faq|api|wcs|kyc|aml|esg|mdx)$/i.test(word)) return word.toUpperCase();
+      return /^[a-z]+$/.test(word) ? word.charAt(0).toUpperCase()+word.slice(1) : word;
+    });
+  }
+  function starterTemplate(type) {
+    var sections={
+      Guide:[['Overview','Describe what this guide helps the reader accomplish.'],['Before you begin','List the information, tools, or access the reader needs.'],['Steps','1. Describe the first step.\n2. Describe the next step.\n3. Explain how to check the result.'],['Troubleshooting','Explain common issues and how to resolve them.'],['Related resources','Add links to useful reference material.']],
+      Blog:[['Introduction','Introduce the topic and why it matters.'],['The main idea','Share your perspective, examples, and supporting evidence.'],['Key takeaways','- First takeaway.\n- Second takeaway.'],['What comes next','Suggest a practical next step for the reader.']],
+      Training:[['Learning objectives','- Explain what learners will be able to do.'],['Before you start','Describe any prerequisites.'],['Lesson','Explain the concept with a worked example.'],['Practice','Add an exercise for learners to try.'],['Check your understanding','Add questions and explain the answers.'],['Further learning','Link to additional learning resources.']],
+      Report:[['Executive summary','Summarise the purpose and principal findings.'],['Scope and method','Describe the period covered, data sources, and approach.'],['Findings','| Finding | Evidence | Implication |\n| --- | --- | --- |\n| Describe the finding | Cite the evidence | Explain the impact |'],['Recommendations','List recommended actions, owners, and next steps.'],['Sources and limitations','Cite your sources and explain any limitations.']],
+      'Job aid':[['Purpose','Describe the task and when to use this job aid.'],['Prerequisites','List required access, inputs, and checks.'],['Procedure','| Step | Action | Expected result |\n| --- | --- | --- |\n| 1 | Describe the action | Describe the result |'],['Checks and exceptions','Explain the checks to complete and where to escalate exceptions.'],['References','Link to the authoritative procedures and supporting resources.']]
+    };
+    return (sections[groupType(type)]||sections.Guide).map(function(section){return '## '+section[0]+'\n\n'+section[1];}).join('\n\n')+'\n';
+  }
   function typeMembers(type) { var members = ['Job aid'].concat(INSIGHT_TYPES).filter(function (item) { return groupType(item) === groupType(type); }); return members.length ? members : [type]; }
   function isInsightType(type) { return INSIGHT_TYPES.indexOf(type) !== -1; }
   function publicationModeFor(type) { return type === 'Blog' ? 'direct-blog' : isInsightType(type) ? 'direct-insight' : null; }
@@ -1861,7 +1918,7 @@
     normalizeImport(result);
     return result;
   }
-  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
+  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, topicLabel: topicLabel, starterTemplate: starterTemplate, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
 });
 
 ;
@@ -6991,6 +7048,16 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         const controls=document.createElement('span');controls.className='editor-video-controls';
         const button=document.createElement('button');button.type='button';button.dataset.editorVideo='edit';button.textContent='Edit video';button.setAttribute('aria-label','Edit video: '+(video.getAttribute('data-video-title')||'Training video'));controls.append(button);video.append(controls);
       });
+      template.content.querySelectorAll('table').forEach(table=>{
+        // Keep an editable landing place on both sides, including imported tables.
+        for(const before of [true,false]){
+          const sibling=before?table.previousElementSibling:table.nextElementSibling;
+          if(!sibling||sibling.tagName!=='P'){
+            const paragraph=document.createElement('p');paragraph.append(document.createElement('br'));
+            table.parentNode.insertBefore(paragraph,before?table:table.nextSibling);
+          }
+        }
+      });
       return template.innerHTML;
     }
     const input=(id,label,value='',attrs='')=>'<label class="editor-field" for="'+id+'"><span>'+label+'</span><input id="'+id+'" name="'+id+'" value="'+escape(value)+'" '+attrs+'></label>';
@@ -7006,6 +7073,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     function commentsSetting(){return '<section id="editor-comments-settings"'+(content.isInsightType(initialType())?'':' hidden')+'>'+select('editor-comments-enabled','Article comments',[{id:'true',name:'Enabled'},{id:'false',name:'Disabled'}],String(initial.commentsEnabled))+'<p class="editor-field-hint">Published changes control the WCSpedia discussion. Disabling keeps existing comments in Confluence; its native permissions remain unchanged.</p></section>';}
     function directInsight(){return content.isInsightType(doc?.type||(host?find('#editor-type').value:initialType()));}
     function updateCommentsSetting(){
+      updateTemplateLabel();
       find('#editor-comments-settings').hidden=!directInsight();
       const blog=directInsight();
       find('#editor-area').closest('.editor-field').hidden=blog;
@@ -7058,7 +7126,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       find('#editor-slug-help').textContent=slugMode==='auto'?'Generated from the title as you type. You can customize it if needed.':slugMode==='saved'?'The saved slug stays unchanged when you update the title.':'Use lowercase letters, numbers, and hyphens. Use title restores automatic generation.';
     }
     function html(){
-      return '<section class="authoring-page discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a><span>/</span><a href="#/results?view=mine">My documents</a><span>/</span><span>'+(doc?'Edit document':'Create content')+'</span></nav><form id="editor-form" class="authoring-surface" novalidate><div class="editor-topbar"><div><h1 class="editor-heading">'+(doc?'Edit document':'Create something worth sharing.')+'</h1><span id="editor-save-status" class="editor-save-status" role="status">'+(doc?(options.editingPublished?'Editing published version '+v.version+' · saved changes create a new draft':'Version '+v.version+' · revision '+v.revision):'New draft')+'</span></div><div class="editor-actions"><button type="button" class="editor-cancel editor-focus-exit" data-editor-action="focus-exit" hidden>Exit expanded view</button><button type="button" class="editor-cancel" data-editor-action="cancel">Cancel</button><button type="button" class="button secondary" data-editor-action="preview">Preview</button><button type="submit" class="button" id="editor-save-button">Save draft <span aria-hidden="true">→</span></button></div></div><div id="editor-error" class="form-error" role="alert" hidden></div><div class="editor-writing"><div class="editor-body"><div class="editor-main">'+input('editor-title','Title',initial.title,'required maxlength="160" placeholder="Give your content a clear, useful title"')+'<div class="editor-content-label"><label id="body-label" for="editor-source">Content</label><div class="editor-mode-actions"><button type="button" data-editor-action="paste-markdown" class="source-toggle">Paste MDX / Markdown</button><button type="button" data-editor-action="copy-markdown" class="source-toggle">Copy Markdown</button><button type="button" data-editor-action="source" class="source-toggle" aria-pressed="false">Markdown</button></div></div><div class="rich-editor"><div class="editor-toolbar" role="toolbar" aria-label="Text formatting"><select aria-label="Paragraph style" id="paragraph-style"><option value="p">Normal text</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option><option value="h4">Heading 4</option></select>'+tool('bold','Bold · Ctrl / ⌘ B','<b>B</b>')+tool('italic','Italic · Ctrl / ⌘ I','<i>I</i>')+tool('underline','Underline · Ctrl / ⌘ U','<u>U</u>')+tool('strikeThrough','Strikethrough','<s>S</s>')+'<span class="toolbar-divider"></span>'+tool('link','Insert link','link')+tool('quote','Block quote','❝')+tool('code','Inline code','&lt;/&gt;')+tool('image','Insert image','image')+tool('video','Insert training video','video')+'<span class="toolbar-break" aria-hidden="true"></span>'+tool('insertUnorderedList','Bullet list','☷')+tool('insertOrderedList','Numbered list','1.')+tool('codeblock','Code block','codeblock')+tool('table','Insert table','table')+tool('divider','Horizontal divider','divider')+tool('clear','Clear formatting','clear')+tool('embed','Embed a resource','embed')+'<span class="toolbar-divider"></span>'+tool('undo','Undo','undo')+tool('redo','Redo','redo')+tool('fullscreen','Expand editor','fullscreen')+'</div><div class="editor-table-tools" hidden><span>Table</span><button type="button" data-table="row">Add row</button><button type="button" data-table="column">Add column</button><button type="button" data-table="remove">Remove table</button></div><div id="editor-rich" class="rich-body document-body" contenteditable="true" role="textbox" aria-label="Document content" aria-multiline="true" spellcheck="true" data-placeholder="Write here, paste Markdown, or insert an image into your content…">'+renderBody(initial.bodyMarkdown)+'</div><textarea id="editor-source" aria-label="Markdown content" class="markdown-source" hidden>'+escape(initial.bodyMarkdown)+'</textarea><div class="editor-body-bottom"><span>Paste Markdown, images, or formatted text.</span><span id="editor-word-count"></span></div></div>'+textarea('editor-highlights','Key highlights <small>Optional · one per line, up to 5</small>',initial.highlights.join('\n'),'rows="3" placeholder="What should a reader take away?"')+'<section class="editor-attachments" aria-label="Supporting attachments"><div class="editor-section-title"><div><h2>Attachments</h2><p>Add supporting documents, templates, or training materials.</p></div><label class="button secondary attachment-upload" for="editor-attachment-file">'+svg('attachment')+'Add files<input id="editor-attachment-file" type="file" multiple accept=".pdf,.txt,.md,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.gif" class="sr-only"></label></div><div id="editor-attachment-list"></div><p class="editor-field-hint">PDF, Office, text, Markdown, CSV, and images · up to 5 MB per file.</p></section>'+governanceSection() +textarea('editor-comment','Change summary',doc?'':'Initial draft.','required maxlength="2000" rows="2" placeholder="Explain what you created or changed for the audit trail."')+'<div class="editor-help">'+options.icon('shield')+'<p>Save your draft, then submit it for review. Your assigned manager approves the reviewed revision before it is published.</p></div></div><aside class="editor-sidebar" aria-label="Document settings"><h2>Document settings</h2>'+select('editor-type','Content type',editorTypes(),initialType(),!!doc)+commentsSetting()+'<p id="editor-insights-destination" hidden><strong>Destination: Insights</strong><br>Published inside WCSpedia.</p>'+select('editor-area','Business area',options.areas.map(a=>({id:a.id,name:a.title})),doc?.area||options.area||options.areas[0]?.id,!!doc)+slugField()+textarea('editor-summary','Excerpt',initial.summary,'required maxlength="1000" rows="4" placeholder="A short summary for search results and the article introduction."')+'<div id="editor-source-metadata">'+sourceMetadataSummary()+'</div><section class="editor-tag-settings"><h2>Make it discoverable</h2>'+tagField('tags','Topics',initial.tags,'For example: collateral, controls')+'<details class="editor-extra-tags"><summary>More organisation options</summary>'+tagField('processes','Processes',initial.processes,'For example: onboarding, annual review')+tagField('regions','Regions / markets',initial.regions,'For example: Global, EMEA, United Kingdom')+'</details><p class="editor-field-hint">Press Enter or comma to add a tag. Matching topics, processes, and markets connect related content.</p></section><div class="editor-cover-settings"><span class="editor-settings-label">Cover image <small>Optional</small></span><div id="editor-cover-preview"></div><label class="cover-upload" for="editor-cover-file">'+options.icon('plus')+'<strong>Upload cover image</strong><span>PNG, JPG, WebP, or GIF · up to 1 MB</span><input type="file" id="editor-cover-file" accept="image/png,image/jpeg,image/webp,image/gif" class="sr-only"></label><details class="cover-url"><summary>Use an image link</summary>'+input('editor-cover-url','Image URL',cover&&!cover.src.startsWith('data:')?cover.src:'','placeholder="https://… or /confluence/download/…"')+'<button type="button" class="link" data-editor-action="cover-url">Apply image</button></details>'+input('editor-cover-alt','Image description',cover?.alt||'','maxlength="300" placeholder="Describe the image for readers"')+input('editor-cover-caption','Caption',cover?.caption||'','maxlength="500" placeholder="Optional caption or source"')+'</div><div class="editor-ownership"><h2>Ownership & review</h2><div class="editor-owner"><span class="avatar">'+escape((options.people.find(p=>p.id===doc?.ownerId)||options.actor).initials)+'</span><div><strong>'+escape((options.people.find(p=>p.id===doc?.ownerId)||options.actor).name)+'</strong><span>Document owner</span></div></div>'+select('editor-reviewer','Reviewer',reviewers,doc?.reviewerId||managers[0]?.id||reviewers[0]?.id,!!doc)+select('editor-approver','Manager approver',managers,doc?.approverId||managers[0]?.id,!!doc)+'<div class="editor-approval-note">Approval date is recorded automatically when the manager approves this revision.</div></div></aside></div></div><div id="editor-reader" hidden></div></form></section>';
+      return '<section class="authoring-page discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a><span>/</span><a href="#/results?view=mine">My documents</a><span>/</span><span>'+(doc?'Edit document':'Create content')+'</span></nav><form id="editor-form" class="authoring-surface" novalidate><div class="editor-topbar"><div><h1 class="editor-heading">'+(doc?'Edit document':'Create something worth sharing.')+'</h1><span id="editor-save-status" class="editor-save-status" role="status">'+(doc?(options.editingPublished?'Editing published version '+v.version+' · saved changes create a new draft':'Version '+v.version+' · revision '+v.revision):'New draft')+'</span></div><div class="editor-actions"><button type="button" class="editor-cancel editor-focus-exit" data-editor-action="focus-exit" hidden>Exit expanded view</button><button type="button" class="editor-cancel" data-editor-action="cancel">Cancel</button><button type="button" class="button secondary" data-editor-action="preview">Preview</button><button type="submit" class="button" id="editor-save-button">Save draft <span aria-hidden="true">→</span></button></div></div><div id="editor-error" class="form-error" role="alert" hidden></div><div class="editor-writing"><div class="editor-body"><div class="editor-main">'+input('editor-title','Title',initial.title,'required maxlength="160" placeholder="Give your content a clear, useful title"')+'<div class="editor-content-label"><label id="body-label" for="editor-source">Content</label><div class="editor-mode-actions"><button type="button" data-editor-action="template" class="source-toggle">Markdown template</button><button type="button" data-editor-action="paste-markdown" class="source-toggle">Paste MDX / Markdown</button><button type="button" data-editor-action="copy-markdown" class="source-toggle">Copy Markdown</button><button type="button" data-editor-action="source" class="source-toggle" aria-pressed="false">Markdown</button></div></div><div class="rich-editor"><div class="editor-toolbar" role="toolbar" aria-label="Text formatting"><select aria-label="Paragraph style" id="paragraph-style"><option value="p">Normal text</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option><option value="h4">Heading 4</option></select>'+tool('bold','Bold · Ctrl / ⌘ B','<b>B</b>')+tool('italic','Italic · Ctrl / ⌘ I','<i>I</i>')+tool('underline','Underline · Ctrl / ⌘ U','<u>U</u>')+tool('strikeThrough','Strikethrough','<s>S</s>')+'<span class="toolbar-divider"></span>'+tool('link','Insert link','link')+tool('quote','Block quote','❝')+tool('code','Inline code','&lt;/&gt;')+tool('image','Insert image','image')+tool('video','Insert training video','video')+'<span class="toolbar-break" aria-hidden="true"></span>'+tool('insertUnorderedList','Bullet list','☷')+tool('insertOrderedList','Numbered list','1.')+tool('codeblock','Code block','codeblock')+tool('table','Insert table','table')+tool('divider','Horizontal divider','divider')+tool('clear','Clear formatting','clear')+tool('embed','Embed a resource','embed')+'<span class="toolbar-divider"></span>'+tool('undo','Undo','undo')+tool('redo','Redo','redo')+tool('fullscreen','Expand editor','fullscreen')+'</div><div class="editor-table-tools" hidden><span>Table</span><button type="button" data-table="row">Add row</button><button type="button" data-table="column">Add column</button><button type="button" data-table="before">Text before table</button><button type="button" data-table="after">Text after table</button><button type="button" data-table="remove">Remove table</button></div><div id="editor-rich" class="rich-body document-body" contenteditable="true" role="textbox" aria-label="Document content" aria-multiline="true" spellcheck="true" data-placeholder="Write here, paste Markdown, or insert an image into your content…">'+renderBody(initial.bodyMarkdown)+'</div><textarea id="editor-source" aria-label="Markdown content" class="markdown-source" hidden>'+escape(initial.bodyMarkdown)+'</textarea><div class="editor-body-bottom"><span>Paste Markdown, images, or formatted text. In a table, Ctrl / ⌘ Enter moves below it.</span><span id="editor-word-count"></span></div></div>'+textarea('editor-highlights','Key highlights <small>Optional · one per line, up to 5</small>',initial.highlights.join('\n'),'rows="3" placeholder="What should a reader take away?"')+'<section class="editor-attachments" aria-label="Supporting attachments"><div class="editor-section-title"><div><h2>Attachments</h2><p>Add supporting documents, templates, or training materials.</p></div><label class="button secondary attachment-upload" for="editor-attachment-file">'+svg('attachment')+'Add files<input id="editor-attachment-file" type="file" multiple accept=".pdf,.txt,.md,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.webp,.gif" class="sr-only"></label></div><div id="editor-attachment-list"></div><p class="editor-field-hint">PDF, Office, text, Markdown, CSV, and images · up to 5 MB per file.</p></section>'+governanceSection() +textarea('editor-comment','Change summary',doc?'':'Initial draft.','required maxlength="2000" rows="2" placeholder="Explain what you created or changed for the audit trail."')+'<div class="editor-help">'+options.icon('shield')+'<p>Save your draft, then submit it for review. Your assigned manager approves the reviewed revision before it is published.</p></div></div><aside class="editor-sidebar" aria-label="Document settings"><h2>Document settings</h2>'+select('editor-type','Content type',editorTypes(),initialType(),!!doc)+commentsSetting()+'<p id="editor-insights-destination" hidden><strong>Destination: Insights</strong><br>Published inside WCSpedia.</p>'+select('editor-area','Business area',options.areas.map(a=>({id:a.id,name:a.title})),doc?.area||options.area||options.areas[0]?.id,!!doc)+slugField()+textarea('editor-summary','Excerpt',initial.summary,'required maxlength="1000" rows="4" placeholder="A short summary for search results and the article introduction."')+'<div id="editor-source-metadata">'+sourceMetadataSummary()+'</div><section class="editor-tag-settings"><h2>Make it discoverable</h2>'+tagField('tags','Topics',initial.tags,'For example: collateral, controls')+'<details class="editor-extra-tags"><summary>More organisation options</summary>'+tagField('processes','Processes',initial.processes,'For example: onboarding, annual review')+tagField('regions','Regions / markets',initial.regions,'For example: Global, EMEA, United Kingdom')+'</details><p class="editor-field-hint">Press Enter or comma to add a tag. Matching topics, processes, and markets connect related content.</p></section><div class="editor-cover-settings"><span class="editor-settings-label">Cover image <small>Optional</small></span><div id="editor-cover-preview"></div><label class="cover-upload" for="editor-cover-file">'+options.icon('plus')+'<strong>Upload cover image</strong><span>PNG, JPG, WebP, or GIF · up to 1 MB</span><input type="file" id="editor-cover-file" accept="image/png,image/jpeg,image/webp,image/gif" class="sr-only"></label><details class="cover-url"><summary>Use an image link</summary>'+input('editor-cover-url','Image URL',cover&&!cover.src.startsWith('data:')?cover.src:'','placeholder="https://… or /confluence/download/…"')+'<button type="button" class="link" data-editor-action="cover-url">Apply image</button></details>'+input('editor-cover-alt','Image description',cover?.alt||'','maxlength="300" placeholder="Describe the image for readers"')+input('editor-cover-caption','Caption',cover?.caption||'','maxlength="500" placeholder="Optional caption or source"')+'</div><div class="editor-ownership"><h2>Ownership & review</h2><div class="editor-owner"><span class="avatar">'+escape((options.people.find(p=>p.id===doc?.ownerId)||options.actor).initials)+'</span><div><strong>'+escape((options.people.find(p=>p.id===doc?.ownerId)||options.actor).name)+'</strong><span>Document owner</span></div></div>'+select('editor-reviewer','Reviewer',reviewers,doc?.reviewerId||managers[0]?.id||reviewers[0]?.id,!!doc)+select('editor-approver','Manager approver',managers,doc?.approverId||managers[0]?.id,!!doc)+'<div class="editor-approval-note">Approval date is recorded automatically when the manager approves this revision.</div></div></aside></div></div><div id="editor-reader" hidden></div></form></section>';
     }
     const tagValues={tags:clone(initial.tags),processes:clone(initial.processes),regions:clone(initial.regions)};
     function tagField(kind,label,values,placeholder){return '<div class="editor-field editor-tag-field"><label for="editor-'+kind+'">'+label+'</label><div class="editor-tag-list" data-tag-list="'+kind+'">'+tagChips(kind,values)+'</div><input id="editor-'+kind+'" data-tag-input="'+kind+'" aria-label="Add '+label.toLowerCase()+'" placeholder="'+placeholder+'" maxlength="80"></div>';}
@@ -7263,6 +7331,29 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         });
       },'wide');
     }
+    function updateTemplateLabel(){
+      const button=find('[data-editor-action="template"]');
+      if(button)button.textContent=(find('#editor-type').value||initialType())+' template';
+    }
+    function templateDialog(){
+      const type=find('#editor-type').value||initialType(),md=content.starterTemplate(type);
+      dialog(type+' Markdown template','<form novalidate><p class="editor-dialog-intro">A starting structure for this content type. Add it at the end of your draft, or copy it to use elsewhere. Your existing content and settings are kept.</p>'+textarea('editor-template-markdown','Markdown template',md,'rows="14" readonly')+'<button type="button" class="button secondary" data-copy-template>Copy template</button><p data-template-status role="status"></p>'+dialogActions('Add to draft')+'</form>',handle=>{
+        handle.element.querySelector('[data-copy-template]').onclick=async()=>{
+          const field=handle.element.querySelector('textarea'),status=handle.element.querySelector('[data-template-status]');
+          try{await navigator.clipboard.writeText(md);status.textContent='Template copied.';}
+          catch(_){field.focus();field.select();status.textContent='Template selected. Use Copy to copy it.';}
+        };
+        bindDialog(handle,(_,h)=>{
+          const current=normalizeCurrent(),combined=current.trimEnd()+(current.trim()?'\n\n':'')+md;
+          const normalized=prepareImport(combined),rendered=renderBody(normalized.bodyMarkdown);
+          h.close('insert');
+          find('#editor-source').value=normalized.bodyMarkdown;find('#editor-rich').innerHTML=rendered;savedRange=null;
+          if(source){const field=find('#editor-source');field.focus();field.setSelectionRange(field.value.length,field.value.length);}
+          else{const rich=find('#editor-rich');rich.focus();const range=document.createRange();range.selectNodeContents(rich);range.collapse(false);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);rememberSelection();}
+          changed();options.notify?.('Template added to this draft.',{type:'success'});
+        });
+      },'wide');
+    }
     async function copyMarkdown(){
       let md;try{normalizeCurrent();md=content.toMarkdown(fields());}catch(ex){error(ex.message);return;}
       try{await navigator.clipboard.writeText(md);find('#editor-save-status').textContent='Markdown copied to clipboard';options.notify?.('Markdown copied to clipboard.',{type:'success'});}
@@ -7290,9 +7381,20 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     }
     function currentTable(){let node=savedRange?.startContainer;if(node?.nodeType===3)node=node.parentElement;const table=node?.closest?.('table');return table&&find('#editor-rich').contains(table)?table:null;}
     function updateTableTools(){find('.editor-table-tools').hidden=!currentTable()||source;}
+    function leaveTable(table,before=false){
+      // Move the selection into a sibling paragraph, never into another cell.
+      let paragraph=before?table.previousElementSibling:table.nextElementSibling;
+      if(!paragraph||paragraph.tagName!=='P'){
+        paragraph=document.createElement('p');paragraph.append(document.createElement('br'));
+        table.parentNode.insertBefore(paragraph,before?table:table.nextSibling);
+      }
+      find('#editor-rich').focus();const range=document.createRange();range.selectNodeContents(paragraph);range.collapse(!before);
+      const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);rememberSelection();changed();
+    }
     function tableAction(action){
       const table=currentTable();if(!table)return;
-      if(action==='remove'){table.remove();savedRange=null;}
+      if(action==='before'||action==='after'){leaveTable(table,action==='before');return;}
+      if(action==='remove'){leaveTable(table);table.remove();}
       if(action==='row'){const row=table.querySelector('tr');if(row){const target=table.tBodies[0]||table.createTBody(),added=target.insertRow();for(let i=0;i<row.cells.length;i++)added.insertCell().textContent='Text';}}
       if(action==='column'){if(table.rows[0]?.cells.length>=8){error('Tables support up to 8 columns.');return;}[...table.rows].forEach((row,i)=>{const cell=document.createElement(i===0?'th':'td');cell.textContent=i===0?'Heading':'Text';row.appendChild(cell);});}
       updateTableTools();changed();
@@ -7322,14 +7424,25 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       coverPreview();attachmentList();count();root.WCSUI.enhance(host);updateSlugControl();updateCommentsSetting();governancePreview();
       root.addEventListener('pagehide',saveRecovery,{signal:abort.signal});
       on('input',e=>{if(busy||!e.target.closest('#editor-form'))return;if(e.target.id==='editor-slug'){slugMode='custom';updateSlugControl();}if(e.target.id==='editor-title'&&slugMode==='auto')find('#editor-slug').value=automaticSlug(e.target.value);e.target.removeAttribute('aria-invalid');if(e.target.closest('.editor-governance'))governanceTouched=true;changed();});
-      on('change',e=>{if(e.target.id==='editor-cover-file')uploadCover(e.target.files[0]);else if(e.target.id==='editor-attachment-file')uploadAttachments(e.target.files);else if(e.target.id==='paragraph-style')format('formatBlock',e.target.value);else if(e.target.closest('#editor-form')){if(e.target.id==='editor-type')updateCommentsSetting();if(e.target.closest('.editor-governance'))governanceTouched=true;if(e.target.id==='editor-governance-classification'){find('#editor-governance-reviewBasis').value=e.target.value==='formal-reference'?'formal-governance':'business-best-practice';find('#editor-governance-reviewBasis').dispatchEvent(new Event('input',{bubbles:true}));}changed();}});
+      on('change',e=>{if(e.target.id==='editor-cover-file')uploadCover(e.target.files[0]);else if(e.target.id==='editor-attachment-file')uploadAttachments(e.target.files);else if(e.target.id==='paragraph-style')format('formatBlock',e.target.value);else if(e.target.closest('#editor-form')){if(e.target.id==='editor-type'){updateCommentsSetting();}if(e.target.closest('.editor-governance'))governanceTouched=true;if(e.target.id==='editor-governance-classification'){find('#editor-governance-reviewBasis').value=e.target.value==='formal-reference'?'formal-governance':'business-best-practice';find('#editor-governance-reviewBasis').dispatchEvent(new Event('input',{bubbles:true}));}changed();}});
       on('focusout',e=>{if(e.target.dataset.tagInput)addTags(e.target.dataset.tagInput);});
       on('keyup',rememberSelection);on('mouseup',rememberSelection);
       on('keydown',e=>{
         if(e.key==='Enter'&&e.target.dataset.tagInput){e.preventDefault();addTags(e.target.dataset.tagInput);return;}
         if(e.key===','&&e.target.dataset.tagInput){e.preventDefault();addTags(e.target.dataset.tagInput);return;}
         if(e.key==='Escape'&&fullScreen&&!activeDialog&&!root.WCSUI.hasPopup()){e.preventDefault();setFocusMode(false);}
-        if(e.key==='Tab'&&e.target.closest('#editor-rich')){rememberSelection();const table=currentTable();if(table){const cell=(savedRange?.startContainer.nodeType===3?savedRange.startContainer.parentElement:savedRange?.startContainer)?.closest?.('td,th'),cells=[...table.querySelectorAll('th,td')],next=cells[cells.indexOf(cell)+(e.shiftKey?-1:1)];if(next){e.preventDefault();const range=document.createRange();range.selectNodeContents(next);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);rememberSelection();}else if(!e.shiftKey){e.preventDefault();tableAction('row');const nextCell=table.rows[table.rows.length-1].cells[0],range=document.createRange();range.selectNodeContents(nextCell);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);rememberSelection();}}}
+        if(e.target.closest('#editor-rich')&&(e.key==='Tab'||((e.metaKey||e.ctrlKey)&&e.key==='Enter'))){
+          rememberSelection();const table=currentTable();
+          if(table){
+            e.preventDefault();
+            if(e.key==='Enter'){leaveTable(table,e.shiftKey);return;}
+            const node=savedRange?.startContainer,cell=(node?.nodeType===3?node.parentElement:node)?.closest?.('td,th');
+            const cells=[...table.querySelectorAll('th,td')],next=cells[cells.indexOf(cell)+(e.shiftKey?-1:1)];
+            if(next){const range=document.createRange();range.selectNodeContents(next);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);rememberSelection();}
+            else leaveTable(table,e.shiftKey);
+            return;
+          }
+        }
         if(!(e.metaKey||e.ctrlKey)||!['b','i','u'].includes(e.key.toLowerCase()))return;
         if(e.target.closest('#editor-rich')){e.preventDefault();format({b:'bold',i:'italic',u:'underline'}[e.key.toLowerCase()]);}
         else if(e.target.id==='editor-source'){e.preventDefault();if(busy)return;const field=e.target,start=field.selectionStart,end=field.selectionEnd,key=e.key.toLowerCase(),marker={b:'**',i:'_',u:'<u>'}[key],closing=key==='u'?'</u>':marker,text=field.value.slice(start,end)||'formatted text';field.setRangeText(marker+text+closing,start,end,'end');field.setSelectionRange(start+marker.length,start+marker.length+text.length);changed();}
@@ -7367,6 +7480,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if(action==='slug-auto'){slugMode='auto';find('#editor-slug').value=automaticSlug(find('#editor-title').value);find('#editor-slug').removeAttribute('aria-invalid');updateSlugControl();find('[data-editor-action="slug-customize"]').focus();changed();}
         if(action==='cancel')requestLeave();
         if(action==='focus-exit')setFocusMode(false);
+        if(action==='template')templateDialog();
         if(action==='paste-markdown')markdownDialog();
         if(action==='copy-markdown')root.WCSUI.runButton(e.target.closest('button'),copyMarkdown);
         if(action==='source'){try{const md=normalizeCurrent(),rendered=renderBody(md);source=!source;find('#editor-source').value=md;find('#editor-rich').innerHTML=rendered;savedRange=null;find('#editor-rich').hidden=source;find('#editor-source').hidden=!source;find('.editor-toolbar').hidden=source;find('.editor-table-tools').hidden=true;find('[data-editor-action="source"]').textContent=source?'Visual editor':'Markdown';find('[data-editor-action="source"]').setAttribute('aria-pressed',String(source));(source?find('#editor-source'):find('#editor-rich')).focus();scheduleFocusLayout();error('');}catch(ex){error(ex.message);}}
@@ -9387,7 +9501,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       '</div>'+
       '<div class="wcs-insights-controls"><div class="wcs-insights-tabs" role="tablist" aria-label="Insight type">'+tabs+'</div>'+
       '<form class="wcs-insights-search wcs-data-table-search" data-wcs-insights-search role="search"><label class="wcs-insights-sr" for="wcs-insights-query">Search insights</label><input id="wcs-insights-query" name="q" type="search" maxlength="200" value="'+esc(filter.q)+'" placeholder="Search insights" autocomplete="off"><button class="button" type="submit" aria-label="Search insights" aria-busy="'+Boolean(options.loading&&!options.appending)+'">Search</button></form>'+
-      '<label class="wcs-insights-topic-filter"><span>Filter by</span><select aria-label="Filter by topic" data-wcs-insights-topic><option value="">Topics</option>'+topicOptions.map(function (topic) { return '<option value="'+esc(topic)+'"'+(fold(filter.topic)===fold(topic)?' selected':'')+'>'+esc(topic)+'</option>'; }).join('')+'</select></label></div>'+
+      '<label class="wcs-insights-topic-filter"><span>Filter by</span><select aria-label="Filter by topic" data-wcs-insights-topic><option value="">Topics</option>'+topicOptions.map(function (topic) { return '<option value="'+esc(topic)+'"'+(fold(filter.topic)===fold(topic)?' selected':'')+'>'+esc(content.topicLabel(topic))+'</option>'; }).join('')+'</select></label></div>'+
       '<div class="wcs-insights-status" role="status" aria-live="polite">'+esc(count)+(options.complete===false&&!options.loading?' · More articles are available through search.':'')+'</div>'+message+
       '<div id="'+id+'" role="tabpanel"'+(selectedIndex>=0?' aria-labelledby="wcs-insights-tab-'+selectedIndex+'"':' aria-label="Insights results"')+' aria-busy="'+Boolean(options.loading)+'"><div class="wcs-insights-grid">'+cards+'</div></div>'+
       (model.hasMore || options.hasMore?'<div class="wcs-insights-more"><button type="button" data-wcs-insights-more'+(options.loading?' disabled'+(options.appending?' aria-busy="true"':''):'')+'>Load more</button></div>':'')+'</section>';
@@ -9697,5 +9811,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['entitlements'] = { version: '769e417668be' };
+  modules['entitlements'] = { version: 'fe5d45027236' };
 })();

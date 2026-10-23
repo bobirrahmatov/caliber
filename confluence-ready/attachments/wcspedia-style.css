@@ -1464,6 +1464,10 @@ body[data-wcs-reader-nav=native] .wcs-reader-navigation :is(a,button):focus-visi
 body[data-wcs-reader-nav=native] .wcs-reader-navigation li::marker{content:""!important}
 body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-page-icon{vertical-align:-.15em;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;margin-inline-end:7px;pointer-events:none}
 
+/* Native leaf dots are separate tree decorations, not list bullets. Preserve
+   their slot and every interactive branch control. */
+body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-leaf-marker{visibility:hidden!important}
+
 /* Follow the host's Data Center design tokens; never change its theme choice.
    Fallbacks cover data-color-mode hosts whose token stylesheet loads later.
    Original/light mode retains each component's existing Citi fallback colour. */

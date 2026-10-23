@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === '769e417668be') return;
+  if (registry.addDocument && registry.addDocument.version === 'fe5d45027236') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -130,6 +130,22 @@
   var TYPE_GROUPS = Object.freeze({Procedure:'Guide',Playbook:'Guide',Checklist:'Guide','Knowledge sharing':'Training',Reference:'Report',Template:'Report',FAQ:'Report'});
   function groupType(type) { return TYPE_GROUPS[type] || type; }
   function typeLabel(type) { return ({Guide:'Guides',Blog:'Blogs',Training:'Training',Report:'Reports','Job aid':'Job aids'})[groupType(type)] || type; }
+  function topicLabel(value) {
+    return String(value == null ? '' : value).trim().replace(/[-_]+/g,' ').replace(/\b[a-zA-Z]+\b/g,function(word){
+      if (/^(?:emea|apac|latam|uk|us|usa|eu|faq|api|wcs|kyc|aml|esg|mdx)$/i.test(word)) return word.toUpperCase();
+      return /^[a-z]+$/.test(word) ? word.charAt(0).toUpperCase()+word.slice(1) : word;
+    });
+  }
+  function starterTemplate(type) {
+    var sections={
+      Guide:[['Overview','Describe what this guide helps the reader accomplish.'],['Before you begin','List the information, tools, or access the reader needs.'],['Steps','1. Describe the first step.\n2. Describe the next step.\n3. Explain how to check the result.'],['Troubleshooting','Explain common issues and how to resolve them.'],['Related resources','Add links to useful reference material.']],
+      Blog:[['Introduction','Introduce the topic and why it matters.'],['The main idea','Share your perspective, examples, and supporting evidence.'],['Key takeaways','- First takeaway.\n- Second takeaway.'],['What comes next','Suggest a practical next step for the reader.']],
+      Training:[['Learning objectives','- Explain what learners will be able to do.'],['Before you start','Describe any prerequisites.'],['Lesson','Explain the concept with a worked example.'],['Practice','Add an exercise for learners to try.'],['Check your understanding','Add questions and explain the answers.'],['Further learning','Link to additional learning resources.']],
+      Report:[['Executive summary','Summarise the purpose and principal findings.'],['Scope and method','Describe the period covered, data sources, and approach.'],['Findings','| Finding | Evidence | Implication |\n| --- | --- | --- |\n| Describe the finding | Cite the evidence | Explain the impact |'],['Recommendations','List recommended actions, owners, and next steps.'],['Sources and limitations','Cite your sources and explain any limitations.']],
+      'Job aid':[['Purpose','Describe the task and when to use this job aid.'],['Prerequisites','List required access, inputs, and checks.'],['Procedure','| Step | Action | Expected result |\n| --- | --- | --- |\n| 1 | Describe the action | Describe the result |'],['Checks and exceptions','Explain the checks to complete and where to escalate exceptions.'],['References','Link to the authoritative procedures and supporting resources.']]
+    };
+    return (sections[groupType(type)]||sections.Guide).map(function(section){return '## '+section[0]+'\n\n'+section[1];}).join('\n\n')+'\n';
+  }
   function typeMembers(type) { var members = ['Job aid'].concat(INSIGHT_TYPES).filter(function (item) { return groupType(item) === groupType(type); }); return members.length ? members : [type]; }
   function isInsightType(type) { return INSIGHT_TYPES.indexOf(type) !== -1; }
   function publicationModeFor(type) { return type === 'Blog' ? 'direct-blog' : isInsightType(type) ? 'direct-insight' : null; }
@@ -812,7 +828,7 @@
     normalizeImport(result);
     return result;
   }
-  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
+  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, topicLabel: topicLabel, starterTemplate: starterTemplate, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
 });
 
 ;
@@ -4520,5 +4536,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: '769e417668be', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
+  registry.addDocument = { version: 'fe5d45027236', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
 })();
