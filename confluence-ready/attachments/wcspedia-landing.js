@@ -7,7 +7,9 @@
   'use strict';
   const mount = document.getElementById('wcspedia');
   if (!mount) return;
+  if (window.WCSPageBoot?.failed) return;
   function failPage(message) {
+    if (window.WCSPageBoot) { window.WCSPageBoot.fail(message); return; }
     const box = document.createElement('div');
     box.className = 'boot-state';
     box.setAttribute('role', 'alert');
@@ -31,8 +33,9 @@
 (function (w,d) {
   'use strict';
   if(w.WCSReaderSidebar)return;
-  var host=null,observer=null,queued=false,destroyed=false,revealOwned=false;
-  var links=new Map(),checks=new Map(),pending=[],running=0,generation=0,controllers=new Set(),leafMarkers=new Set();
+  var host=null,observer=null,resizeObserver=null,queued=false,destroyed=false,revealOwned=false;
+  var compactPaths=new Set(),compactLinks=new Set(),tooltip=null,tooltipLink=null,previousDescription=null;
+  var links=new Map(),checks=new Map(),pending=[],running=0,generation=0,controllers=new Set(),leafMarkers=new Set(),treeRows=new Set(),collections=new Set();
   function config(){
     var c=w.WCS_ARTICLE_DISCUSSION_CONFIG||w.WCS_ADD_DOCUMENT_CONFIG||{};
     var root=String(c.rootPageId||''),context=c.contextPath||'/confluence';
@@ -107,19 +110,68 @@
   }
   function enhance(){
     var c=config(),epoch=generation;markLeaves();
+    host.querySelectorAll('.plugin_pagetree_childtoggle_container').forEach(function(toggle){
+      var row=toggle.parentElement;
+      if(Array.from(row.children).some(function(child){return child.classList.contains('plugin_pagetree_children_content');})){
+        row.classList.add('wcs-native-tree-row');treeRows.add(row);
+      }
+    });
     host.querySelectorAll('a[href]').forEach(function(a){
       if(links.has(a)||a.matches('[role=button],[aria-expanded],.plugin_pagetree_childtoggle,[data-type=toggle]')||a.closest('.acs-side-bar-footer'))return;
       var original=a.getAttribute('href'),id=nativeId(a);if(!id)return;
       var icon=d.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('width','16');icon.setAttribute('height','16');icon.setAttribute('aria-hidden','true');icon.setAttribute('focusable','false');icon.setAttribute('class','wcs-native-page-icon');
-      var path=d.createElementNS(icon.namespaceURI,'path');var menu=c&&Object.keys(c.menus).find(function(key){return String(c.menus[key])===id;});path.setAttribute('d',iconPaths[menu]||(c&&c.excluded.includes(id)?iconPaths.working:iconPaths['documentation-pledging']));icon.append(path);a.prepend(icon);
-      var record={original:original,rewritten:null,icon:icon};links.set(a,record);a.setAttribute('data-wcs-native-page-link','');
-      if(c&&c.excluded.includes(id))return;cleanTitle(a,id,record);if(!c)return;
+      var path=d.createElementNS(icon.namespaceURI,'path');var menu=c&&Object.keys(c.menus).find(function(key){return String(c.menus[key])===id;});path.setAttribute('d',iconPaths[menu]||(c&&c.excluded.includes(id)?iconPaths.working:iconPaths['documentation-pledging']));icon.append(path);
+      var label=d.createElement('span');label.className='wcs-native-page-label';while(a.firstChild)label.append(a.firstChild);a.append(label);a.prepend(icon);
+      var record={original:original,rewritten:null,icon:icon,label:label,ariaLabel:a.getAttribute('aria-label')};links.set(a,record);a.setAttribute('data-wcs-native-page-link','');
+      if(menu==='insights'||Object.prototype.hasOwnProperty.call(c?.menus||{},menu)&&!['home','mine','review','saved','entitlements','working'].includes(menu)){
+        var row=a.closest('li');if(row){row.classList.add('wcs-native-collection');collections.add(row);}
+        a.setAttribute('data-wcs-compact-link','');compactLinks.add(a);
+        for(var parent=a.parentElement;parent&&parent!==host;parent=parent.parentElement){parent.classList.add('wcs-native-compact-path');compactPaths.add(parent);}
+        if(menu==='insights'){
+          var walker=d.createTreeWalker(a,4),node;while((node=walker.nextNode()))if(node.nodeValue.trim()==='Blogs'){record.title={node:node,original:node.nodeValue,clean:node.nodeValue.replace('Blogs','Insights')};node.nodeValue=record.title.clean;break;}
+        }
+      }
+      if(!c||!c.excluded.includes(id))cleanTitle(a,id,record);
+      if(record.ariaLabel===null)a.setAttribute('aria-label',label.textContent.trim());
+      if(c&&c.excluded.includes(id))return;if(!c)return;
       verified(id,c).then(function(ok){
         if(!ok||destroyed||epoch!==generation||!active()||!host?.contains(a)||a.getAttribute('href')!==original)return;
         record.rewritten=c.context+'/pages/viewpage.action?pageId='+c.root+'#/published/'+id;
         a.setAttribute('href',record.rewritten);
       });
     });
+    compactLinks.forEach(function(a){
+      var row=a.closest('li'),selected=!!row&&(row.matches('.plugin_pagetree_current')||!!row.querySelector('.plugin_pagetree_current,a[aria-current="page"]'));
+      if(a.getAttribute('data-wcs-current-collection')!==String(selected))a.setAttribute('data-wcs-current-collection',String(selected));
+    });
+  }
+  function hideTooltip(){
+    if(tooltipLink){if(previousDescription===null)tooltipLink.removeAttribute('aria-describedby');else tooltipLink.setAttribute('aria-describedby',previousDescription);}
+    tooltip?.remove();tooltip=null;tooltipLink=null;previousDescription=null;
+  }
+  function showTooltip(event){
+    var a=event.target.closest?.('a[data-wcs-compact-link]');
+    if(!host||host.getAttribute('data-wcs-native-compact')!=='true'||!a||!host.contains(a))return;
+    if(tooltipLink===a)return;hideTooltip();
+    tooltip=d.createElement('div');tooltip.id='wcs-native-sidebar-tooltip';tooltip.className='wcs-native-sidebar-tooltip';tooltip.setAttribute('role','tooltip');tooltip.textContent=a.getAttribute('aria-label')||a.textContent.trim();d.body.append(tooltip);
+    tooltipLink=a;previousDescription=a.getAttribute('aria-describedby');a.setAttribute('aria-describedby',[previousDescription,tooltip.id].filter(Boolean).join(' '));
+    var box=a.getBoundingClientRect(),tip=tooltip.getBoundingClientRect();
+    tooltip.style.left=Math.max(8,Math.min(box.right+12,w.innerWidth-tip.width-8))+'px';
+    tooltip.style.top=Math.max(8,Math.min(box.top+(box.height-tip.height)/2,w.innerHeight-tip.height-8))+'px';
+  }
+  function leaveTooltip(event){if(tooltipLink&&!tooltipLink.contains(event.relatedTarget)&&!tooltip?.contains(event.relatedTarget))hideTooltip();}
+  function escapeTooltip(event){if(event.key==='Escape')hideTooltip();}
+  function compactState(){
+    if(!host)return;
+    var width=host.getBoundingClientRect().width;
+    var compact=host.matches('.ia-splitter-left-collapsed,.acs-side-bar-collapsed')||!!host.closest('.ia-splitter-left-collapsed')||(width>0&&width<=96);
+    // Only retain existing collection links. Never create a replacement rail.
+    compact=compact&&Array.from(compactLinks).some(function(a){return host.contains(a);});
+    if(host.getAttribute('data-wcs-native-compact')!==String(compact)){host.setAttribute('data-wcs-native-compact',String(compact));hideTooltip();}
+  }
+  function attachHost(){
+    host.addEventListener('mouseover',showTooltip);host.addEventListener('focusin',showTooltip);host.addEventListener('mouseout',leaveTooltip);host.addEventListener('focusout',leaveTooltip);
+    if(w.ResizeObserver){resizeObserver=new w.ResizeObserver(compactState);resizeObserver.observe(host);}
   }
   function active(){
     if(!w.location||w.top!==w.self)return false;
@@ -128,9 +180,13 @@
     return !!d.querySelector('#main-content .wcs-native-article,.wiki-content .wcs-native-article')&&!!d.body.getAttribute('data-wcs-active-style-flags');
   }
   function reset(){
+    hideTooltip();resizeObserver?.disconnect();resizeObserver=null;
+    if(host){host.removeEventListener('mouseover',showTooltip);host.removeEventListener('focusin',showTooltip);host.removeEventListener('mouseout',leaveTooltip);host.removeEventListener('focusout',leaveTooltip);host.removeAttribute('data-wcs-native-compact');}
+    compactPaths.forEach(function(el){el.classList.remove('wcs-native-compact-path');});compactPaths.clear();compactLinks.forEach(function(a){a.removeAttribute('data-wcs-compact-link');a.removeAttribute('data-wcs-current-collection');});compactLinks.clear();
     generation++;controllers.forEach(function(c){c.abort();});checks.clear();
-    links.forEach(function(record,a){if(record.rewritten&&a.getAttribute('href')===record.rewritten)a.setAttribute('href',record.original);if(record.title&&record.title.node.nodeValue===record.title.clean)record.title.node.nodeValue=record.title.original;record.icon.remove();a.removeAttribute('data-wcs-native-page-link');});links.clear();
+    links.forEach(function(record,a){if(record.rewritten&&a.getAttribute('href')===record.rewritten)a.setAttribute('href',record.original);if(record.title&&record.title.node.nodeValue===record.title.clean)record.title.node.nodeValue=record.title.original;record.icon.remove();if(record.label.parentNode===a)record.label.replaceWith(...Array.from(record.label.childNodes));if(record.ariaLabel===null)a.removeAttribute('aria-label');else a.setAttribute('aria-label',record.ariaLabel);a.removeAttribute('data-wcs-native-page-link');});links.clear();
     leafMarkers.forEach(function(marker){marker.classList.remove('wcs-native-leaf-marker');});leafMarkers.clear();
+    treeRows.forEach(function(row){row.classList.remove('wcs-native-tree-row');});treeRows.clear();collections.forEach(function(row){row.classList.remove('wcs-native-collection');});collections.clear();
     if(host)host.classList.remove('wcs-reader-navigation');
     host=null;d.body?.removeAttribute('data-wcs-reader-nav');
     if(revealOwned){revealOwned=false;d.body.classList.add('citi-hide-sidebar');}
@@ -140,28 +196,36 @@
     if(!active()){reset();return;}
     var native=d.querySelector('.ia-fixed-sidebar,.acs-side-bar,#sidebar');
     if(!native){reset();return;} // No native tree means no sidebar; never synthesize one.
-    if(host!==native){if(host)reset();host=native;}
+    if(host!==native){if(host)reset();host=native;attachHost();}
     host.classList.add('wcs-reader-navigation');
     d.body.setAttribute('data-wcs-reader-nav','native');
     // Let the theme restore its own sidebar/content layout. Native collapsed
     // classes and preferences remain entirely under Confluence's control.
     if(d.body.classList.contains('citi-hide-sidebar')){revealOwned=true;d.body.classList.remove('citi-hide-sidebar');}
-    enhance();
+    enhance();compactState();
   }
   function schedule(){if(!queued){queued=true;Promise.resolve().then(function(){queued=false;refresh();});}}
   function start(){
     refresh();if(observer||!d.body)return;
     observer=new MutationObserver(function(changes){
       if(changes.some(function(c){
-        if(c.type==='attributes')return c.target===d.body&&((c.attributeName==='data-wcs-active-style-flags')||(active()&&d.body.classList.contains('citi-hide-sidebar')));
+        if(c.type==='attributes'){
+          if(c.attributeName==='class'&&(c.oldValue||'')===(c.target.getAttribute('class')||''))return false;
+          if(c.attributeName==='data-wcs-active-style-flags')return c.target===d.body;
+          if(host&&host.contains(c.target)&&c.attributeName==='aria-current')return true;
+          if(host&&host.contains(c.target)&&c.attributeName==='class'&&((c.oldValue||'').includes('plugin_pagetree_current')||c.target.classList.contains('plugin_pagetree_current')))return true;
+          if(c.attributeName==='class'&&host&&(c.target===d.body||c.target===host||c.target.contains(host))){
+            var old=(c.oldValue||'').replace(/wcs-reader-navigation/g,'').trim(),next=(c.target.getAttribute('class')||'').replace(/wcs-reader-navigation/g,'').trim();return old!==next;
+          }return false;
+        }
         return Array.from(c.addedNodes).concat(Array.from(c.removedNodes)).some(function(n){return n.nodeType===1;});
       }))schedule();
     });
-    observer.observe(d.body,{childList:true,subtree:true,attributes:true,attributeFilter:['data-wcs-active-style-flags','class']});
+    observer.observe(d.body,{childList:true,subtree:true,attributes:true,attributeOldValue:true,attributeFilter:['data-wcs-active-style-flags','class','aria-current']});
   }
-  function destroy(){destroyed=true;observer?.disconnect();observer=null;reset();d.removeEventListener('DOMContentLoaded',start);w.removeEventListener('hashchange',schedule);}
+  function destroy(){destroyed=true;observer?.disconnect();observer=null;reset();d.removeEventListener('DOMContentLoaded',start);w.removeEventListener('hashchange',schedule);w.removeEventListener('resize',compactState);w.removeEventListener('scroll',hideTooltip,true);d.removeEventListener('keydown',escapeTooltip);}
   w.WCSReaderSidebar={refresh:refresh,destroy:destroy};
-  d.addEventListener('DOMContentLoaded',start);w.addEventListener('hashchange',schedule);
+  d.addEventListener('DOMContentLoaded',start);w.addEventListener('hashchange',schedule);w.addEventListener('resize',compactState);w.addEventListener('scroll',hideTooltip,true);d.addEventListener('keydown',escapeTooltip);
   if(d.body)start();
 })(window,document);
 
@@ -1220,6 +1284,13 @@
   var TYPE_GROUPS = Object.freeze({Procedure:'Guide',Playbook:'Guide',Checklist:'Guide','Knowledge sharing':'Training',Reference:'Report',Template:'Report',FAQ:'Report'});
   function groupType(type) { return TYPE_GROUPS[type] || type; }
   function typeLabel(type) { return ({Guide:'Guides',Blog:'Blogs',Training:'Training',Report:'Reports','Job aid':'Job aids'})[groupType(type)] || type; }
+  function insightCoverUrl(key,options) {
+    options=options||{};var id=String(key||''),hash=2166136261;
+    for(var i=0;i<id.length;i++)hash=Math.imul(hash^id.charCodeAt(i),16777619)>>>0;
+    var file='wcs-insight-cover-'+String(hash%50+1).padStart(2,'0')+'.jpg';
+    var host=String(options.attachmentPageId||''),context=String(options.contextPath||'/confluence').replace(/\/$/,'');
+    return /^[1-9]\d{0,19}$/.test(host)&&/^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/.test(context)?context+'/download/attachments/'+host+'/'+file+'?api=v2':'assets/insights-covers/'+file;
+  }
   function topicLabel(value) {
     return String(value == null ? '' : value).trim().replace(/[-_]+/g,' ').replace(/\b[a-zA-Z]+\b/g,function(word){
       if (/^(?:emea|apac|latam|uk|us|usa|eu|faq|api|wcs|kyc|aml|esg|mdx)$/i.test(word)) return word.toUpperCase();
@@ -1918,7 +1989,7 @@
     normalizeImport(result);
     return result;
   }
-  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, topicLabel: topicLabel, starterTemplate: starterTemplate, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
+  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, insightCoverUrl: insightCoverUrl, topicLabel: topicLabel, starterTemplate: starterTemplate, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
 });
 
 ;
@@ -3816,6 +3887,12 @@
       var v = actor ? voteData(prop, String(p.id), VOTE_PREFIX + actor) : null, allowed = !!actor && canUpdate(p);
       return { schemaVersion: 1, rootPageId: rootId, pageId: String(p.id), pageVersion: p.version.number, canVote: allowed, canRecord: allowed, reason: !actor ? 'Sign in to record helpfulness and views.' : allowed ? '' : 'Native Confluence page edit permission is required to record helpfulness and views.', myVote: { value: v ? v.value : null, revision: prop ? prop.version.number : 0, pageVersion: v ? v.pageVersion : null }, totals: null, views: { source: 'confluence-content-properties', status: 'available', recordedViews: views.count, windowMinutes: 30, lastRecordedAt: views.lastRecordedAt }, coverage: clone(COVERAGE) };
     }
+    async function loadViews(pageId, options) {
+      options = options || {};
+      await page(pageId, options); // Same scope and access verification as the reader.
+      var views = viewData(await property(pageId, VIEW_KEY, options), pageId);
+      return {pageId:String(pageId),views:{recordedViews:views.count}};
+    }
     async function load(pageId, options) {
       options = options || {};
       var pair = await Promise.all([page(pageId, options), identity(pageId, options)]), p = pair[0], actor = pair[1];
@@ -3929,7 +4006,7 @@
       var current = versions[p.version.number] || { yes: 0, no: 0, total: 0 };
       return { schemaVersion: 1, pageId: pageId, pageVersion: p.version.number, observedAt: new Date(clock()).toISOString(), helpfulness: Object.assign({ source: 'confluence-content-properties', status: 'available' }, votes, { currentVersionTotals: { yes: current.yes, no: current.no, total: current.total }, byPageVersion: Object.keys(versions).map(Number).sort(function (a, b) { return a - b; }).map(function (v) { return versions[v]; }) }), views: { source: 'confluence-content-properties', status: 'available', recordedViews: view.count, windowMinutes: 30, lastRecordedAt: view.lastRecordedAt }, coverage: clone(COVERAGE) };
     }
-    return Object.freeze({ load: load, vote: vote, recordView: recordView, exportDocument: exportDocument });
+    return Object.freeze({ load: load, loadViews: loadViews, vote: vote, recordView: recordView, exportDocument: exportDocument });
   }
   return Object.freeze({ create: create, votePrefix: VOTE_PREFIX, viewKey: VIEW_KEY, coverage: COVERAGE });
 });
@@ -4176,7 +4253,7 @@ function renderStorage(document, selected, people = [], options = {}) {
   out += '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-comments-v1-' + (version.commentsEnabled ? 'enabled' : 'disabled') + '</ac:parameter></ac:structured-macro>';
   out += '<ac:structured-macro ac:name="details" ac:schema-version="1"><ac:parameter ac:name="id">wcspedia-document</ac:parameter>' + (article ? '<ac:parameter ac:name="hidden">true</ac:parameter>' : '') + '<ac:rich-text-body>' + table(rows) + '</ac:rich-text-body></ac:structured-macro>';
   if (article) {
-    out += version.cover ? '<div class="wcs-native-article-cover">' + imageTag(staged(options, '$cover', version.cover.src), version.cover.alt) + (version.cover.caption ? '<p>' + xml(version.cover.caption) + '</p>' : '') + '</div>' : '<div class="wcs-native-article-art" aria-hidden="true"></div>';
+    out += version.cover ? '<div class="wcs-native-article-cover">' + imageTag(staged(options, '$cover', version.cover.src), version.cover.alt) + (version.cover.caption ? '<p>' + xml(version.cover.caption) + '</p>' : '') + '</div>' : '<div class="wcs-native-article-cover">'+'<ac:structured-macro ac:name="html" ac:schema-version="1"><ac:plain-text-body>'+cdata('<img src="'+xml(content.insightCoverUrl(document.id,{attachmentPageId:options.attachmentPageId,contextPath:options.contextPath}))+'" alt="" decoding="async" />')+'</ac:plain-text-body></ac:structured-macro>'+'</div>';
     out += '<div class="wcs-native-article-layout"><div class="wcs-native-article-body">';
   }
   if (version.summary) out += '<ac:structured-macro ac:name="excerpt" ac:schema-version="1"><ac:rich-text-body><p>' + xml(version.summary) + '</p></ac:rich-text-body></ac:structured-macro>';
@@ -4541,7 +4618,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function bodyWrite(p,document,media,kind,requestId,expectedParent,signal){
       if(marked(p,'wcs-operation-'+requestId)){p.readerReady=marked(p,'wcs-reader-v1');return p;}
       var initial=markers(p).find(function(value){return /^wcs-created-[a-zA-Z0-9-]{16,100}$/.test(value);});
-      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,readerSidebarUrl:context+'/download/attachments/'+numeric(config.attachmentPageId||rootId)+'/wcspedia-reader-sidebar.js?api=v2',readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
+      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,attachmentPageId:numeric(config.attachmentPageId||rootId),contextPath:context,readerSidebarUrl:context+'/download/attachments/'+numeric(config.attachmentPageId||rootId)+'/wcspedia-reader-sidebar.js?api=v2',readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
       var suffix=' · WCS '+p.id;
       var title=kind==='published'?v.title.slice(0,250-suffix.length)+suffix:'WCSpedia working '+document.id;
       var response=await request('/rest/api/content/'+p.id,'PUT',{id:p.id,type:'page',title:title.slice(0,250),space:{key:space},ancestors:[{id:expectedParent}],version:{number:p.version.number+1,message:'WCSpedia '+kind+' '+v.status+' v'+v.version+' r'+v.revision+' · '+requestId},body:{storage:{representation:'storage',value:body}}},signal);
@@ -5419,6 +5496,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     if (typeof entitlementFilename !== 'string' || entitlementFilename.length > 255 || !/^[A-Za-z0-9][A-Za-z0-9._ -]*\.json$/.test(entitlementFilename) || entitlementFilename.indexOf('..') >= 0) fail('Use a simple JSON entitlementsFilename.', 'CONFIGURATION');
     var policyConfigured = /^[1-9]\d*$/.test(entitlementPageId);
     var last = null;
+    var discoveryMetrics = new Map();
     var pendingCommand = null;
     var accessLast = null, pendingEntitlementCommand = null;
     var spaceStore = null, spaceWorkflow = null, spaceEngagement = null;
@@ -5750,7 +5828,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var crypto = dependencies.crypto || root.crypto;
       if (!crypto || !crypto.randomUUID) fail('Web Crypto is required for recovery.', 'CONFIGURATION');
       await nativeStorage().reconcileJSON(preview, {requestId:'entitlement-recovery-' + crypto.randomUUID()});
-      accessLast = null; last = null;
+      accessLast = null; last = null; discoveryMetrics.clear();
       return true;
     }
     async function resolveAccess(user, documentPages, existing, signal) {
@@ -6267,6 +6345,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     function metricDocument(key) {
       var doc = last && last.data.documents.find(function (d) { return d.id === key && !d.deletedAt; });
       var published = doc && doc.versions.find(function (v) { return v.version === doc.publishedVersion && v.status === 'Published'; });
+      if((!doc||!published)&&discoveryMetrics.has(key))return discoveryMetrics.get(key);
       if (!doc || !published || !publishedPageId(doc)) fail('Recorded views require a loaded, published WCSpedia document.', 'METRICS_UNAVAILABLE');
       return { pageId: publishedPageId(doc), version: published.version, revision: published.revision };
     }
@@ -6281,7 +6360,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         var jobs = queue.map(function (key) { return { key: key, doc: metricDocument(key) }; });
         await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, async function () {
           while (jobs.length) {
-            var job = jobs.shift(), result = await nativeMetrics().load(job.doc.pageId);
+            var job = jobs.shift(), metrics = nativeMetrics(), result = await (metrics.loadViews || metrics.load)(job.doc.pageId);
             if (!result || String(result.pageId) !== job.doc.pageId || !result.views || !integer(result.views.recordedViews, 0)) fail('Recorded views could not be confirmed.', 'INVALID_METRICS');
             nativeCounts[job.key] = result.views.recordedViews;
           }
@@ -6556,6 +6635,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           var data = JSON.parse(snapshot.textContent), v = data.document?.versions?.find(function (v) { return v.version === data.document.publishedVersion && v.status === 'Published'; });
           if (data.format === 1 && data.pageId === String(item.id) && data.nativeVersion === item.version?.number && snapshot.getAttribute('data-wcs-reader-root') === pageId && v) {
             fields.summary = plain(v.summary || ''); fields.cover = v.cover || null;
+            fields.documentKey=data.document.id;
+            var author=(data.people||[]).find(function(person){return person.id===(data.document.authorId||v.createdBy);});
+            fields.author=author?plain(author.name||author.displayName||''):null;
+            if(metricKey(fields.documentKey)&&integer(v.version)&&integer(v.revision)){
+              discoveryMetrics.set(fields.documentKey,{pageId:String(item.id),version:v.version,revision:v.revision});
+              if(discoveryMetrics.size>256)discoveryMetrics.delete(discoveryMetrics.keys().next().value);
+            }
             textBody += ' ' + String(v.bodyMarkdown || '') + ' ' + JSON.stringify(v.sections || []);
           }
         } catch (_) { /* Legacy pages can still provide a native text excerpt. */ }
@@ -6681,7 +6767,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       }
       var position = options.continuation == null ? { start: start } : continuationPosition(options.continuation, cql, limit);
       var expanded = tree ? (options.excerpt === false ? 'space,ancestors' : 'version,space,ancestors,metadata.labels') : 'version,space,ancestors';
-      if (options.insights) expanded += ',body.storage';
+      if (tree && options.excerpt !== false) expanded += ',body.storage';
       if (scope.additionalSubtreePageId && expanded.indexOf('metadata.labels') < 0) expanded += ',metadata.labels';
       var contentTransport = options.continuation ? options.continuation.transport === 'content' : preferContentSearch;
       async function fetchResults(useContent) {
@@ -6761,7 +6847,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       response.results.forEach(function (result) { if (!checkScope(result, !contentTransport)) incomplete = true; });
       if (incomplete) {
         // A single bounded Content query repeats the exact root/space/area CQL.
-        // No body expansion, per-page fetch or whole-space fallback is used.
+        // Visible-card metadata stays in this batch; no per-page fetch or whole-space fallback.
         if (position.cursor) fail('Confluence omitted metadata on a cursor page. Restart this search.', 'INVALID_SCOPE');
         response = await fetchResults(true);
         response.results.forEach(function (result) { checkScope(result, false); });
@@ -6787,10 +6873,12 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           normalized.type = typeof search.typeFromLabel === 'function' ? names.map(search.typeFromLabel).find(Boolean) || null : null;
           normalized.tags = names.filter(function (name) { return /^wcs-tag-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name); }).map(function (name) { return name.slice(8); });
           normalized.version = integer((item.version || {}).number) ? item.version.number : null;
-          if (options.insights) {
+          if (options.excerpt !== false) {
             var card = discoveryBody(item);
             if (card.summary) normalized.summary = card.summary;
             if (card.cover) normalized.cover = card.cover;
+            if(card.documentKey)normalized.documentKey=card.documentKey;
+            if(card.author)normalized.author=card.author;
           }
         }
         return normalized;
@@ -7568,7 +7656,19 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     if(config.pageRole==='review')return '#/review';
     return '#/';
   }
-  return {roleFor,resolve,initialHash,routeHash,canonicalUrl};
+  function isListRoute(hash){return typeof hash==='string'&&/^#\/(?:$|\?|results(?:\?|$)|review(?:\?|$)|insights(?:\?|$)|saved(?:\?|$)|health(?:\?|$)|topic\/[^?]+(?:\?|$))/.test(hash);}
+  function afterDelete(config,hash,previousList){
+    const current=routeHash(config,hash);
+    if(isListRoute(current))return current;
+    const requested=new URLSearchParams(current.split('?')[1]||'').get('returnTo');
+    if(isListRoute(requested))return requested;
+    if(isListRoute(previousList))return previousList;
+    // Remain on the current native host. Never route deletion to another page
+    // because of the deleted document's content type.
+    const fallback=initialHash({...config,documentId:undefined});
+    return isListRoute(fallback)?fallback:'#/results?view=mine';
+  }
+  return {roleFor,resolve,initialHash,routeHash,canonicalUrl,isListRoute,afterDelete};
 });
 
 ;
@@ -9464,13 +9564,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   // Stable pseudo-random selection from the 50-image library. A new document ID
   // gets its own choice; rerenders, sorting and reloads never reshuffle it.
   function fallbackImage(item, options) {
-    var id=text(item.id || item.url || item.title), hash=2166136261;
-    for(var i=0;i<id.length;i++) hash=Math.imul(hash^id.charCodeAt(i),16777619)>>>0;
-    var file='wcs-insight-cover-'+String(hash%50+1).padStart(2,'0')+'.jpg';
-    var host=text(options.attachmentPageId),context=text(options.contextPath || '/confluence').replace(/\/$/,'');
-    if(/^[1-9]\d{0,19}$/.test(host)&&/^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/.test(context))
-      return safeUrl(context+'/download/attachments/'+host+'/'+file+'?api=v2',options.baseUrl);
-    return safeUrl('assets/insights-covers/'+file,options.baseUrl);
+    return safeUrl(content.insightCoverUrl(item.documentKey||item.id||item.url||item.title,options),options.baseUrl);
   }
   function card(item, options) {
     var url = safeUrl(item.url, options.baseUrl), cover = item.cover && (typeof item.cover === 'string' ? item.cover : item.cover.src || item.cover.url);
@@ -9485,7 +9579,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       '<div class="wcs-insights-cover">'+(image?'<img src="'+esc(image)+'" data-wcs-cover-fallback="'+esc(fallback)+'"'+(!cover?' data-wcs-cover-default="true"':'')+' alt="" loading="lazy" decoding="async" width="800" height="500">':placeholder())+'</div>'+
       '<div class="wcs-insights-card-body"><p class="wcs-insights-topic">'+esc(topic)+'</p><h2>'+esc(label)+'</h2>'+
       (item.summary?'<p class="wcs-insights-summary">'+esc(item.summary)+'</p>':'')+
-      '<div class="wcs-insights-card-footer"><span>'+esc(content.typeLabel(item.type))+(updated?' · '+esc(updated):'')+(author?'<span class="wcs-insights-author">'+esc(author)+'</span>':'')+'</span>'+(url?icon('arrow'):'')+'</div></div>'+(url?'</a>':'</div>')+'</article>';
+      '<div class="wcs-insights-card-footer"><span>'+esc(content.typeLabel(item.type))+(updated?' · '+esc(updated):'')+'<span class="wcs-insights-author">'+esc(author||'Author unavailable')+'</span>'+((item.documentKey||!options.prefiltered)?'<span class="document-view-count" data-document-views="'+esc(item.documentKey||item.id)+'">'+esc(options.viewLabel?options.viewLabel(item.documentKey||item.id):'Views unavailable')+'</span>':'')+'</span>'+(url?icon('arrow'):'')+'</div></div>'+(url?'</a>':'</div>')+'</article>';
   }
   function render(options) {
     options = options || {}; var model = select(options), filter = model.filter, active = fold(filter.type), id = 'wcs-insights-results';
@@ -9811,5 +9905,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['home'] = { version: 'fe5d45027236' };
+  modules['home'] = { version: 'a4d7c14d8c57' };
 })();

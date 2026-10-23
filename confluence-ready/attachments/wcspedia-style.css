@@ -1410,6 +1410,12 @@
 #wcspedia .wcs-delete-key-heading .button { flex: none; padding: 8px 12px; }
 #wcspedia #delete-key { width: 100%; box-sizing: border-box; margin-bottom: 24px; }
 
+#wcspedia .wcs-search-cover{flex:0 0 160px;align-self:center;overflow:hidden;border-radius:12px}
+#wcspedia .wcs-search-cover img{width:100%;aspect-ratio:8/5;object-fit:cover}
+#wcspedia .wcs-insights-card-footer .document-view-count{display:block;color:var(--ds-text-subtle,var(--wcs-theme-muted,#526880))}
+#wcspedia .wcs-cover-unavailable{background:var(--ds-background-neutral,var(--wcs-theme-subtle,#edf3fc));min-height:120px}
+@media(max-width:650px){#wcspedia .wcs-search-cover{flex-basis:85px}}
+
 /* Native article chrome only. The helper sets this attribute on marked page
    views and removes it in editors, previews, app pages and on teardown.
    Do not hide navBar, the article h1, WCSpedia discussion or article actions. */
@@ -1467,6 +1473,30 @@ body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-page-icon{ve
 /* Native leaf dots are separate tree decorations, not list bullets. Preserve
    their slot and every interactive branch control. */
 body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-leaf-marker{visibility:hidden!important}
+
+body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-collection>.plugin_pagetree_children_content a[data-wcs-native-page-link]{font-weight:600}
+/* Native row layout: only the existing branch control moves to the right. */
+body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-tree-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-tree-row>.plugin_pagetree_children_content{grid-column:1;grid-row:1;float:none;width:auto;min-width:0}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-tree-row>.plugin_pagetree_childtoggle_container{grid-column:2;grid-row:1;float:none;width:auto}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-tree-row>.plugin_pagetree_children_container{grid-column:1 / -1}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-tree-row>.plugin_pagetree_children_content a[data-wcs-native-page-link]{display:flex;align-items:baseline}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation .wcs-native-tree-row .wcs-native-page-icon{flex-shrink:0}
+
+/* Compact native sidebar: reveal the paths to existing collection links only.
+   Confluence still owns sidebar width, content offset and its collapse button. */
+body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=true] .wcs-native-compact-path{display:block!important;visibility:visible!important;opacity:1!important;width:auto!important;min-width:0!important;max-width:none!important;padding-inline:0!important;margin-inline:0!important}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=true] .wcs-native-compact-path>:not(.wcs-native-compact-path):not([data-wcs-compact-link]){display:none!important}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=true] .wcs-native-collection{margin-block:6px!important;padding-block:0!important}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=true] a[data-wcs-compact-link]{display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:36px!important;min-height:40px!important;margin-inline:auto!important;padding:8px!important;border-radius:9px!important;text-decoration:none!important;position:relative}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=true] a[data-wcs-compact-link]>.wcs-native-page-label{display:none!important}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=true] a[data-wcs-compact-link]>.wcs-native-page-icon{display:block!important;width:20px!important;height:20px!important;margin:0!important;flex-shrink:0}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation a[data-wcs-native-page-link]{transition:background-color .16s ease,color .16s ease}
+body[data-wcs-reader-nav=native] .wcs-reader-navigation a[data-wcs-native-page-link]>.wcs-native-page-label{min-width:0;overflow-wrap:anywhere}
+body[data-wcs-reader-nav=native] .wcs-native-sidebar-tooltip{position:fixed;z-index:10000;max-width:min(240px,calc(100vw - 16px));padding:8px 12px;border-radius:8px;background:var(--ds-background-neutral-bold,#17385e);color:var(--ds-text-inverse,#fff);box-shadow:0 4px 14px #0002;font-size:13px;line-height:1.4;pointer-events:none}
+@media(prefers-reduced-motion:reduce){body[data-wcs-reader-nav=native] .wcs-reader-navigation a[data-wcs-native-page-link]{transition:none}}
+
+body[data-wcs-reader-nav=native] .wcs-reader-navigation[data-wcs-native-compact=true] a[data-wcs-current-collection=true]{background:var(--wcs-action-bg,#255be3)!important;color:#fff!important}
 
 /* Follow the host's Data Center design tokens; never change its theme choice.
    Fallbacks cover data-color-mode hosts whose token stylesheet loads later.

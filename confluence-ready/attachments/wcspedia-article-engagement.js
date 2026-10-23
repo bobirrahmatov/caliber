@@ -459,6 +459,12 @@
       var v = actor ? voteData(prop, String(p.id), VOTE_PREFIX + actor) : null, allowed = !!actor && canUpdate(p);
       return { schemaVersion: 1, rootPageId: rootId, pageId: String(p.id), pageVersion: p.version.number, canVote: allowed, canRecord: allowed, reason: !actor ? 'Sign in to record helpfulness and views.' : allowed ? '' : 'Native Confluence page edit permission is required to record helpfulness and views.', myVote: { value: v ? v.value : null, revision: prop ? prop.version.number : 0, pageVersion: v ? v.pageVersion : null }, totals: null, views: { source: 'confluence-content-properties', status: 'available', recordedViews: views.count, windowMinutes: 30, lastRecordedAt: views.lastRecordedAt }, coverage: clone(COVERAGE) };
     }
+    async function loadViews(pageId, options) {
+      options = options || {};
+      await page(pageId, options); // Same scope and access verification as the reader.
+      var views = viewData(await property(pageId, VIEW_KEY, options), pageId);
+      return {pageId:String(pageId),views:{recordedViews:views.count}};
+    }
     async function load(pageId, options) {
       options = options || {};
       var pair = await Promise.all([page(pageId, options), identity(pageId, options)]), p = pair[0], actor = pair[1];
@@ -572,7 +578,7 @@
       var current = versions[p.version.number] || { yes: 0, no: 0, total: 0 };
       return { schemaVersion: 1, pageId: pageId, pageVersion: p.version.number, observedAt: new Date(clock()).toISOString(), helpfulness: Object.assign({ source: 'confluence-content-properties', status: 'available' }, votes, { currentVersionTotals: { yes: current.yes, no: current.no, total: current.total }, byPageVersion: Object.keys(versions).map(Number).sort(function (a, b) { return a - b; }).map(function (v) { return versions[v]; }) }), views: { source: 'confluence-content-properties', status: 'available', recordedViews: view.count, windowMinutes: 30, lastRecordedAt: view.lastRecordedAt }, coverage: clone(COVERAGE) };
     }
-    return Object.freeze({ load: load, vote: vote, recordView: recordView, exportDocument: exportDocument });
+    return Object.freeze({ load: load, loadViews: loadViews, vote: vote, recordView: recordView, exportDocument: exportDocument });
   }
   return Object.freeze({ create: create, votePrefix: VOTE_PREFIX, viewKey: VIEW_KEY, coverage: COVERAGE });
 });

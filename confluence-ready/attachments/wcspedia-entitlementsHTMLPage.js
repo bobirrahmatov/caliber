@@ -7,7 +7,9 @@
   'use strict';
   const mount = document.getElementById('wcspedia');
   if (!mount) return;
+  if (window.WCSPageBoot?.failed) return;
   function failPage(message) {
+    if (window.WCSPageBoot) { window.WCSPageBoot.fail(message); return; }
     const box = document.createElement('div');
     box.className = 'boot-state';
     box.setAttribute('role', 'alert');
@@ -20,7 +22,7 @@
   }
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['entitlements']?.version !== 'fe5d45027236') {
+  if (!window.WCSPageModules || window.WCSPageModules['entitlements']?.version !== 'a4d7c14d8c57') {
     failPage('Load wcspedia-entitlements.js before wcspedia-entitlementsHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }
@@ -34,7 +36,9 @@
   // The Confluence host owns page scrolling; never create a second viewport
   // inside the HTML macro or change the existing header's height/overflow.
   root.style.removeProperty('--wcs-available-height');
-  const loading=window.WCSLoadingOverlay.create({target:root,delayMs:200});
+  const loading=window.WCSPageBoot?.claim(root)||window.WCSLoadingOverlay.create({target:root});
+  let startupFinished=false;
+  const pageReads=new Set();
   let adapter, session, bootFailed=false;
   const startupController=new AbortController();
   function isNativeDiscoveryRoute(){
@@ -58,14 +62,19 @@
   // Every page uses the same bounded startup overlay. Route changes dismiss
   // the old wait; background refreshes keep the current page interactive.
   function showLoading(message){ loading.show(message); }
-  window.addEventListener('hashchange',()=>loading.hide());
+  window.addEventListener('hashchange',()=>{pageReads.clear();loading.hide();});
   showLoading('Loading WCSpedia…');
-  root.innerHTML=window.WCSLoadingOverlay.skeleton('Loading your page…');
+  root.replaceChildren();
   try {
     if(config.mode==='embedded') session={data:window.WCSData,actorId:'alex',canSubmit:true,mode:'embedded'};
     else { adapter=window.WCSConfluence.create(config); session=await loading.wait(adapter.load({signal:startupController.signal,discoveryOnly:live&&isNativeDiscoveryRoute(),workspaceScope:requestedWorkspaceScope()})); }
     if(!session.data || !Array.isArray(session.data.documents)) throw new Error('The knowledge data could not be loaded.');
     loading.progress(1,3,'Loading saved items and content checks…');
+  function finishLoading(){if(startupFinished&&!pageReads.size){loading.hide();focusLandingSearch();}}
+  function pageLoading(promise,message='Loading your page…'){
+    const ticket={};pageReads.add(ticket);loading.show(message);
+    void loading.wait(promise).catch(error=>{if(pageReads.has(ticket))toast(error.message,{type:'error'});}).finally(()=>{pageReads.delete(ticket);finishLoading();});
+  }
   let data=session.data;
   if(session.actor&&!data.people.some(p=>p.id===session.actorId)) data.people.push(session.actor);
   const canWrite=()=>!live||session.canSubmit;
@@ -74,6 +83,7 @@
   const baseData = clone(data);
   let library=null,libraryStarted=false, exportView=null, editor=null, editorHash='', editorSequence=0, suggestionWidget=null, suggestionInbox=null, chartView=null, chartSummary=null;
   let suggestionTimer=null, suggestionController=null, suggestionSequence=0, childSearchController=null, childSearchSequence=0;
+  let landingPaintPromise=null,releaseLandingPaint=null;
   let landingController=null, landingSequence=0, nativeLanding={status:'idle',areas:{},recent:[]};
   const nativePageLinks=new Map();
   // Reuse only native responses received by this page and this signed-in actor.
@@ -91,13 +101,13 @@
     if(publishedRead?.id!==id){
       publishedRead?.controller?.abort();
       const state={id,status:'loading',controller:new AbortController()};publishedRead=state;
-      adapter.loadPublishedArticle(id,{signal:state.controller.signal}).then(result=>{
+      pageLoading(adapter.loadPublishedArticle(id,{signal:state.controller.signal}).then(result=>{
         if(publishedRead!==state||state.controller.signal.aborted)return;
         documents=documents.filter(doc=>!doc.publicReader&&doc.id!==result.document.id).concat(result.document);
         for(const person of result.people)if(!data.people.some(p=>p.id===person.id))data.people.push(person);
         session.nativePermissions=session.nativePermissions||{};session.nativePermissions.documents=session.nativePermissions.documents||{};session.nativePermissions.documents[result.document.id]=[{operation:'read',targetType:'page'}];
         state.status='ready';render();
-      }).catch(error=>{if(publishedRead!==state||state.controller.signal.aborted)return;state.status='error';state.error=error;render();});
+      }).catch(error=>{if(publishedRead!==state||state.controller.signal.aborted)return;state.status='error';state.error=error;render();}),'Loading article…');
     }
     const state=publishedRead;
     root.innerHTML='<div class="discovery-container"><section class="page-panel" role="status">'+(state.status==='error'?'<h1>Article unavailable</h1><p>'+esc(state.error.message)+'</p><button class="button secondary" data-action="retry-published-reader">Try again</button> <a class="button secondary" href="'+esc((config.contextPath||'/confluence')+'/pages/viewpage.action?pageId='+id+'&wcsNativeUi=1')+'">View native page</a>':'<p><span class="wcs-button-spinner" aria-hidden="true"></span> Loading article…</p>')+'</section></div>';
@@ -179,7 +189,16 @@
       event.preventDefault();go(target.href);
     }catch(_){/* Only a valid same-origin header destination participates. */}
   });
-  function wirePageLinks(scope=root){scope.querySelectorAll('a[href^="#/"]').forEach(a=>a.setAttribute('href',destination(a.getAttribute('href'))));}
+  let lastListHash=null;
+  function wirePageLinks(scope=root){scope.querySelectorAll('a[href^="#/"]').forEach(a=>{
+    let href=a.getAttribute('href');
+    const origin=window.WCSNavigation.routeHash(config,location.hash);
+    const returnTo=window.WCSNavigation.isListRoute(origin)?origin:route().params.get('returnTo')||lastListHash;
+    if(window.WCSNavigation.isListRoute(returnTo)&&/^#\/(?:document|article|published|review)\//.test(href)){
+      const [path,query='']=href.split('?'),params=new URLSearchParams(query);params.set('returnTo',returnTo);href=path+'?'+params;
+    }
+    a.setAttribute('href',destination(href));
+  });}
   function canManage(doc) { return !doc.publicReader&&!doc.deletedAt&&(!live||session.workspaceLoaded) && (permitted('content.edit',doc)||permitted('content.delete',doc)||[doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId].includes(actorId)); }
   function demoBar() { if(live)return '<div class="connection-bar"><span>'+icon('shield')+' Confluence knowledge library</span><span>'+esc(actor().name)+(canWrite()?'':' · Read only')+'</span></div>';return '<div class="demo-bar"><span class="demo-caption" title="'+esc(data.sampleNotice)+'"><i></i>Interactive prototype · sample people & documents <button class="demo-reset" data-action="reset" title="Restore the sample data and discard local demo changes">Reset demo</button></span><label class="role-switch"><span>Viewing as</span><select id="demo-actor" aria-label="Demo persona">'+data.people.map(p=>'<option value="'+esc(p.id)+'" '+(p.id===actorId?'selected':'')+'>'+esc(p.name)+(p.role==='Reader'?'':' · '+p.role)+'</option>').join('')+'</select></label></div>'; }
   function shell(content) { return '<div class="shell discovery-shell" role="region" aria-label="WCSpedia page content">'+(route().path==='/'||live&&config.showConnectionStatus===false?'':demoBar())+content+'</div><div id="modal-mount"></div>'; }
@@ -205,7 +224,7 @@
   async function loadViewCounts(force=true){
     if(nativeMetricsMode){
       const keys=[...new Set([...root.querySelectorAll('[data-document-views]')].map(el=>el.dataset.documentViews))].slice(0,50).filter(key=>!nativeViewLoading.has(key)&&(force||!nativeViewRequested.has(key)));
-      if(!keys.length){scheduleDocumentView();return;}
+      if(!keys.length){updateViewLabels();scheduleDocumentView();return;}
       const generation=viewGeneration;
       keys.forEach(key=>{nativeViewRequested.add(key);nativeViewLoading.add(key);});updateViewLabels();
       try{const counts=await adapter.loadMetrics(keys);if(generation!==viewGeneration)return;for(const key of Object.keys(counts))viewCounts[key]=Math.max(counts[key],viewCounts[key]||0);viewStatus='ready';}
@@ -267,16 +286,23 @@
     if(item?.error)return 'Count unavailable';
     return Number.isSafeInteger(count)&&count>=0?count+' document'+(count===1?'':'s'):'Browse documents';
   }
+  function coverOptions(){return {attachmentPageId:config.attachmentPageId,contextPath:config.contextPath||'/confluence'};}
+  function coverImage(key,cover,css,lazy=true){
+    let checked=null;try{if(cover)checked=typeUI.validateCover(cover);}catch(_){}
+    const fallback=typeUI.insightCoverUrl(key,coverOptions());
+    return '<img class="'+css+'" src="'+esc(checked?.src||fallback)+'" data-wcs-cover-fallback="'+esc(fallback)+'"'+(!checked?' data-wcs-cover-default="true"':'')+' alt="'+esc(checked?.alt||'')+'"'+(lazy?' loading="lazy"':'')+' decoding="async">';
+  }
+  function discoveryViews(item){return item.documentKey?'<span class="document-view-count" data-document-views="'+esc(item.documentKey)+'">'+esc(viewLabel(item.documentKey))+'</span>':'<span>Views unavailable</span>';}
   function nativeFeaturedCard(item) {
     const type=item.type||'Confluence page',areaName=(item.category==='insights'?'Insights':area(item.category)?.title)||'Wealth Credit Services';
-    const media='<div class="feature-cover feature-cover-placeholder type-'+slug(type)+'" aria-hidden="true"><span>'+icon(type==='Training'?'book':type==='Blog'?'users':'file')+'</span><i></i><i></i></div>';
-    return '<article class="featured-document"><a class="feature-media" tabindex="-1" aria-hidden="true" href="'+esc(item.url)+'">'+media+'</a><div class="feature-body"><div class="feature-area">'+esc(typeUI.typeLabel(type))+' · '+esc(areaName)+'</div><h3><a href="'+esc(item.url)+'">'+esc(item.title)+'</a></h3>'+(item.summary?'<p>'+esc(item.summary)+'</p>':'')+'<div class="feature-bottom"><span>'+(item.updated&&Number.isFinite(Date.parse(item.updated))?'Updated '+date(item.updated):'Update date unavailable')+'</span><a class="circle-link" href="'+esc(item.url)+'" aria-label="Read '+esc(item.title)+'">'+icon('arrow')+'</a></div></div></article>';
+    const media=coverImage(item.documentKey||item.id,item.cover,'feature-cover');
+    return '<article class="featured-document"><a class="feature-media" tabindex="-1" aria-hidden="true" href="'+esc(item.url)+'">'+media+'</a><div class="feature-body"><div class="feature-area">'+esc(typeUI.typeLabel(type))+' · '+esc(areaName)+'</div><h3><a href="'+esc(item.url)+'">'+esc(item.title)+'</a></h3>'+(item.summary?'<p>'+esc(item.summary)+'</p>':'')+'<div class="feature-metrics"><span>By '+esc(item.author||'Author unavailable')+'</span>'+discoveryViews(item)+'</div><div class="feature-bottom"><span>'+(item.updated&&Number.isFinite(Date.parse(item.updated))?'Updated '+date(item.updated):'Update date unavailable')+'</span><a class="circle-link" href="'+esc(item.url)+'" aria-label="Read '+esc(item.title)+'">'+icon('arrow')+'</a></div></div></article>';
   }
   function transientReadFailure(error) {
     return ['NETWORK','TIMEOUT','SEARCH_TIMEOUT'].includes(error?.code)||[408,429,500,502,503,504].includes(error?.status);
   }
   function nativeLandingMessage() {
-    if(!nativeLanding.recentReady&&['idle','loading'].includes(nativeLanding.status))return window.WCSLoadingOverlay.skeleton('Loading the latest documents…');
+    if(!nativeLanding.recentReady&&['idle','loading'].includes(nativeLanding.status))return '<p class="sr-only" role="status">Loading the latest documents…</p>';
     const error=nativeLanding.error||nativeLanding.recentError;
     if(error)return (nativeLanding.recent.length?'<div class="featured-grid">'+nativeLanding.recent.map(nativeFeaturedCard).join('')+'</div>':'')+'<div class="library-unavailable" role="alert"><strong>'+ (nativeLanding.recent.length?'Showing previously loaded documents. Refresh unavailable.':'Latest documents are unavailable')+'</strong><p>'+esc(error.message||'Unable to load child pages from Confluence.')+'</p><button class="button secondary" data-action="retry-native-landing">Try again</button></div>';
     if(!nativeLanding.recentReady)return '<p class="quiet-note">Search or browse a business area to find documents.</p><button class="button secondary" data-action="retry-native-landing">Load latest documents</button>';
@@ -298,8 +324,10 @@
     const markup=nativeLandingMessage();
     if(nativeLandingMarkup.get(mount)!==markup){mount.innerHTML=markup;nativeLandingMarkup.set(mount,markup);}
     const status=root.querySelector('#native-landing-area-status');if(status)status.innerHTML=nativeAreaStatus();
+    loadViewCounts(false);
   }
   function cancelNativeLanding(reset=false,pause=false) {
+    releaseLandingPaint?.();releaseLandingPaint=null;landingPaintPromise=null;
     landingController?.abort();landingController=null;landingSequence++;
     if(reset)nativeLanding={status:'idle',areas:{},recent:[]};
     else if(nativeLanding.status==='loading')nativeLanding={...nativeLanding,status:'ready',at:nativeLanding.at||Date.now()};
@@ -311,6 +339,7 @@
     if(!live||!root.querySelector('#native-landing-documents'))return;
     if(!force&&(nativeLanding.status==='loading'||nativeLanding.status==='ready'&&Date.now()-nativeLanding.at<nativeBrowseTTL))return;
     landingController?.abort();const controller=new AbortController(),sequence=++landingSequence;landingController=controller;
+    releaseLandingPaint?.();landingPaintPromise=new Promise(resolve=>{releaseLandingPaint=resolve;});const painted=releaseLandingPaint;
     const retained=nativeLanding;
     nativeLanding={status:'loading',areas:retained?.areas||{},recent:retained?.recent||[],recentReady:retained?.recentReady===true,at:retained?.at||Date.now()};updateNativeLanding();
     const warmedAreas=new Set();
@@ -327,7 +356,7 @@
           warmedAreas.add(areaId);rememberNativeBrowse({...nativeSearchDefaults(),area:areaId,limit:6,start:0},item.searchResult);
         }
       });
-      updateNativeLanding();
+      updateNativeLanding();if(recentReady)painted();
     };
     try{
       if(typeof adapter.loadLanding!=='function')throw new Error('Update the landing-page scripts to load native Confluence documents.');
@@ -339,14 +368,14 @@
       const detail={code:error.code,status:error.status,message:error.message};
       nativeLanding={...(transientReadFailure(error)?nativeLanding:{areas:{},recent:[],recentReady:false}),status:'ready',at:Date.now(),error:detail};
     }finally{
-      if(current()){landingController=null;updateNativeLanding();}
+      if(current()){landingController=null;updateNativeLanding();}painted();
     }
   }
   function featuredCard({d,v}) {
     let cover=null;try{if(v.cover)cover=window.WCSEditorContent.validateCover(v.cover);}catch(_){}
     const destination=docUrl(d.id,'content',v.version);
-    const media=cover?'<img class="feature-cover" loading="lazy" src="'+esc(cover.src)+'" alt="'+esc(cover.alt)+'">':'<div class="feature-cover feature-cover-placeholder type-'+slug(d.type)+'" aria-hidden="true"><span>'+icon(d.type==='Training'?'book':d.type==='Blog'?'users':'file')+'</span><i></i><i></i></div>';
-    return '<article class="featured-document"><a class="feature-media" tabindex="-1" aria-hidden="true" href="'+destination+'">'+media+'</a><div class="feature-body"><div class="feature-area">'+esc(typeUI.typeLabel(d.type))+' · '+esc((v.processes||[])[0]||area(d.area)?.title||'Wealth Credit Services')+'</div><h3><a href="'+destination+'">'+esc(v.title)+'</a></h3><p>'+esc(v.summary)+'</p><div class="feature-metrics">'+readingMarkup(v)+viewsMarkup(d)+'</div><div class="feature-bottom"><span>Approved '+date(v.approvedAt)+'</span><a class="circle-link" href="'+destination+'" aria-label="Read '+esc(v.title)+'">'+icon('arrow')+'</a></div></div></article>';
+    const media=coverImage(d.id,cover,'feature-cover');
+    return '<article class="featured-document"><a class="feature-media" tabindex="-1" aria-hidden="true" href="'+destination+'">'+media+'</a><div class="feature-body"><div class="feature-area">'+esc(typeUI.typeLabel(d.type))+' · '+esc((v.processes||[])[0]||area(d.area)?.title||'Wealth Credit Services')+'</div><h3><a href="'+destination+'">'+esc(v.title)+'</a></h3><p>'+esc(v.summary)+'</p><div class="feature-metrics"><span>By '+esc(person(d.authorId||v.createdBy).name)+'</span>'+readingMarkup(v)+viewsMarkup(d)+'</div><div class="feature-bottom"><span>Published '+date(v.publishedAt||v.approvedAt||v.createdAt)+'</span><a class="circle-link" href="'+destination+'" aria-label="Read '+esc(v.title)+'">'+icon('arrow')+'</a></div></div></article>';
   }
   function landingFAQ() {
     const entries=[
@@ -368,7 +397,7 @@
   const insightsCache=new Map();
   function insightsFilter(){const p=route().params;return {type:insightsTypes.includes(p.get('type'))?typeUI.groupType(p.get('type')):'all',topic:p.get('topic')||'',q:p.get('q')||''};}
   function insightsKey(){return JSON.stringify([signedIdentity()?.userKey||'',signedIdentity()?.soeid||'',insightsFilter()]);}
-  function localInsights(){return documents.flatMap(doc=>{const version=workflow.publishedVersion(doc);return !doc.deletedAt&&version?[{...version,id:doc.id,type:doc.type,area:doc.area,url:destination(docUrl(doc.id,'content',version.version)),updatedAt:version.sourceMetadata?.updatedAt||version.approvedAt||version.createdAt,author:person(doc.authorId).name}]:[];});}
+  function localInsights(){return documents.flatMap(doc=>{const version=workflow.publishedVersion(doc);return !doc.deletedAt&&version?[{...version,id:doc.id,type:doc.type,area:doc.area,url:destination(docUrl(doc.id,'content',version.version)),updatedAt:version.publishedAt||version.approvedAt||version.createdAt,author:person(doc.authorId).name}]:[];});}
   function insightsPage(){return '<div id="wcs-insights-content"></div>';}
   function paintInsights(){
     const host=root.querySelector('#wcs-insights-content');if(!host||route().path!=='/insights')return;
@@ -379,14 +408,14 @@
     const topicFocused=host.contains(active)&&!!active.closest('.wcs-insights-topic-filter');
     insightsView?.destroy();window.WCSUI.destroy(host);
     const state=insightsState||{items:[],loading:live,error:'',next:null};
-    host.innerHTML=window.WCSInsights.render({documents:live?state.items:localInsights(),areas:data.areas,baseUrl:location.href,attachmentPageId:window.WCS_CONFIG?.attachmentPageId,contextPath:window.WCS_CONFIG?.contextPath||'/confluence',filter:insightsFilter(),types:typeUI.INSIGHT_CHOICES,prefiltered:live,limit:live?Math.max(9,state.items.length):insightsLimit,complete:!live||!state.next,hasMore:live&&!!state.next,loading:!!state.loading,appending:!!state.retryAppend,error:state.error||''});
+    host.innerHTML=window.WCSInsights.render({documents:live?state.items:localInsights(),areas:data.areas,baseUrl:location.href,attachmentPageId:window.WCS_CONFIG?.attachmentPageId,contextPath:window.WCS_CONFIG?.contextPath||'/confluence',filter:insightsFilter(),types:typeUI.INSIGHT_CHOICES,viewLabel,prefiltered:live,limit:live?Math.max(9,state.items.length):insightsLimit,complete:!live||!state.next,hasMore:live&&!!state.next,loading:!!state.loading,appending:!!state.retryAppend,error:state.error||''});
     insightsView=window.WCSInsights.bind(host,{
       onFilter:filter=>{insightsLimit=9;go(url('/insights',{...filter,type:filter.type==='all'?'':filter.type}));},
       onMore:()=>{if(live)loadInsights(true);else{insightsLimit+=9;paintInsights();}},
       onRetry:()=>loadInsights(!!insightsState?.retryAppend)
     });
     window.WCSUI.enhance(host);
-    wirePageLinks();
+    wirePageLinks();loadViewCounts(false);
     const nextQuery=host.querySelector('#wcs-insights-query');
     if(previousQuery&&nextQuery){nextQuery.value=queryDraft;if(queryFocused){nextQuery.focus({preventScroll:true});if(selection[0]!=null)try{nextQuery.setSelectionRange(...selection);}catch(_){}}}
     if(!queryFocused&&focusedId){const nextFocus=document.getElementById(focusedId);if(nextFocus&&host.contains(nextFocus))nextFocus.focus({preventScroll:true});}
@@ -424,7 +453,7 @@
   }
   function resultCard({d,v},q='') {
     const target=discoveryOptions().view==='mine'&&canManage(d)?url('/review/'+d.id):docUrl(d.id,'content',v.version);
-    return '<article class="press-card"><div class="press-card-main"><div class="press-card-kicker"><span>'+esc(typeUI.typeLabel(d.type))+'</span><span>'+esc(d.reference)+'</span>'+(v.status!=='Published'?badge(v.status):'')+'</div><h2><a href="'+target+'">'+highlight(v.title,q)+'</a></h2><p>'+highlight(v.summary,q)+'</p><div class="press-card-meta"><span>'+esc(area(d.area)?.title||'Wealth Credit Services')+'</span><span>'+(v.approvedAt?'Approved '+date(v.approvedAt):'Approval pending')+'</span><span>Owner: '+esc(person(d.ownerId).name)+'</span>'+readingMarkup(v)+viewsMarkup(d)+(library?.tag(d)||'')+'</div></div><a class="press-arrow" href="'+target+'" aria-label="Read '+esc(v.title)+'">'+icon('arrow')+'</a></article>';
+    return '<article class="press-card">'+(typeUI.isInsightType(d.type)?'<a class="press-card-thumbnail" tabindex="-1" aria-hidden="true" href="'+target+'">'+coverImage(d.id,v.cover,'press-card-cover')+'</a>':'')+'<div class="press-card-main"><div class="press-card-kicker"><span>'+esc(typeUI.typeLabel(d.type))+'</span><span>'+esc(d.reference)+'</span>'+(v.status!=='Published'?badge(v.status):'')+'</div><h2><a href="'+target+'">'+highlight(v.title,q)+'</a></h2><p>'+highlight(v.summary,q)+'</p><div class="press-card-meta"><span>'+esc(area(d.area)?.title||'Wealth Credit Services')+'</span><span>'+(v.status==='Published'?'Published '+date(v.publishedAt||v.approvedAt||v.createdAt):v.status)+'</span><span>By '+esc(person(d.authorId||v.createdBy).name)+'</span>'+readingMarkup(v)+viewsMarkup(d)+(library?.tag(d)||'')+'</div></div><a class="press-arrow" href="'+target+'" aria-label="Read '+esc(v.title)+'">'+icon('arrow')+'</a></article>';
   }
   function workspaceTable(rows,mode='mine') {
     return window.WCSWorkspaceTable.render({rows,mode,typeLabel:typeUI.typeLabel,documentHref:({d})=>url('/review/'+d.id),personName:id=>person(id).name,areaName:id=>area(id)?.title||'Wealth Credit Services',statusMarkup:badge,healthMarkup:d=>library?.tag(d)||'',readingMarkup,viewsMarkup,dateLabel:date,
@@ -475,7 +504,7 @@
   }
   function clearNativeBrowse(){
     insightsController?.abort();insightsController=null;insightsCache.clear();insightsState=null;
-    adapter.invalidateSearch?.();
+    adapter?.invalidateSearch?.();
     cancelNativePrefetch();nativeBrowseCache.clear();nativePageLinks.clear();cancelNativeLanding(true);
   }
   function libraryNeeded(){
@@ -569,7 +598,7 @@
     return '<div class="discovery"><section class="press-heading page-panel"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a>'+icon('chevron')+'<span>'+esc(topic?'Business area':'Knowledge library')+'</span></nav><div class="results-title-row"><div><div class="eyebrow">'+(topic?'Business area':'Wealth Credit Services')+'</div><h1>'+esc(topic?topic.title:native.query?'Search results':'Explore our knowledge')+'</h1><p>'+esc(topic?topic.description:'Practical guidance. Shared experience. Knowledge that moves us forward.')+'</p></div></div></div></section><div class="discovery-container"><div class="press-search-row">'+bigSearch(native.query,'library')+'<div class="press-filters" aria-label="Search filters"><span class="filter-caption">Filter by</span>'+filter('type','Content type',creationTypes.map(value=>({value,label:typeUI.typeLabel(value)})),native.type)+filter('area','Collection',discoveryAreas().map(item=>({value:item.id,label:item.title})),native.area)+filter('year','Updated year',years.map(value=>({value,label:value})),native.year)+'<a class="reset-link" href="'+link({area:'',type:'',year:'',tag:'',process:'',region:''})+'">Reset</a></div></div><details class="taxonomy-filters" '+([native.tag,native.process,native.region].some(Boolean)?'open':'')+'><summary>Topics, processes & regions</summary><div>'+filter('tag','Topic',taxonomy('tags',native.tag),native.tag)+filter('process','Process',taxonomy('processes',native.process),native.process)+filter('region','Region',taxonomy('regions',native.region),native.region)+'</div></details><section class="press-results" aria-label="Search results"><div class="discovery-results-toolbar"><p id="native-search-count" role="status">Searching…</p><label>Sort by <select aria-label="Sort results" data-filter="sort">'+[['relevance','Most relevant'],['updated','Last updated'],['title','Title A–Z']].map(([value,label])=>'<option value="'+value+'" '+(native.sort===value?'selected':'')+'>'+label+'</option>').join('')+'</select></label></div>'+(chips.length?'<div class="discovery-chips">'+chips.map(([key,value])=>'<a href="'+link({[key]:''})+'" aria-label="Remove '+esc(value)+' filter">'+esc(value)+icon('close')+'</a>').join('')+'</div>':'')+'<div id="native-search-results" aria-live="polite" aria-busy="true"></div></section></div></div>';
   }
   function nativeResultCard(item,query) {
-    return '<article class="press-card"><div class="press-card-main"><div class="press-card-kicker"><span>'+esc(item.type||'Confluence page')+'</span></div><h2><a href="'+esc(item.url)+'">'+highlight(item.title,query)+'</a></h2>'+(item.summary?'<p>'+highlight(item.summary,query)+'</p>':'')+'<div class="press-card-meta">'+(item.category?'<span>'+esc((item.category==='insights'?'Insights':area(item.category)?.title)||item.category)+'</span>':'')+(item.updated?'<span>Updated '+date(item.updated)+'</span>':'')+'</div></div><a class="press-arrow" href="'+esc(item.url)+'" aria-label="Read '+esc(item.title)+'">'+icon('arrow')+'</a></article>';
+    return '<article class="press-card">'+(typeUI.isInsightType(item.type)?'<a class="wcs-search-cover" tabindex="-1" aria-hidden="true" href="'+esc(item.url)+'">'+coverImage(item.documentKey||item.id,item.cover,'feature-cover')+'</a>':'')+'<div class="press-card-main"><div class="press-card-kicker"><span>'+esc(item.type||'Confluence page')+'</span></div><h2><a href="'+esc(item.url)+'">'+highlight(item.title,query)+'</a></h2>'+(item.summary?'<p>'+highlight(item.summary,query)+'</p>':'')+'<div class="press-card-meta"><span>By '+esc(item.author||'Author unavailable')+'</span>'+discoveryViews(item)+(item.category?'<span>'+esc((item.category==='insights'?'Insights':area(item.category)?.title)||item.category)+'</span>':'')+(item.updated?'<span>Updated '+date(item.updated)+'</span>':'')+'</div></div><a class="press-arrow" href="'+esc(item.url)+'" aria-label="Read '+esc(item.title)+'">'+icon('arrow')+'</a></article>';
   }
   async function loadNativeResults() {
     const mount=root.querySelector('#native-search-results'),count=root.querySelector('#native-search-count');if(!mount||!live)return;
@@ -579,7 +608,7 @@
     const options=nativeSearchOptions(),values=nativeSearchValues(options),params=route().params;
     const page=Math.max(1,Math.min(100000,parseInt(params.get('page'),10)||1)),limit=6,queryKey=JSON.stringify(values);
     mount.setAttribute('aria-busy','true');
-    mount.innerHTML=window.WCSLoadingOverlay.skeleton('Searching documents…');count.textContent='Searching…';setSearchBusy(true);
+    mount.innerHTML='';count.textContent='Searching…';setSearchBusy(true);
     const searchButton=root.querySelector('form[data-search] button[type=submit]');
     searchButton?.setAttribute('data-wcs-search-pending','true');
     try {
@@ -601,6 +630,7 @@
       const control=(href,label,kind,content)=>href?'<a class="wcs-page-control '+kind+'" href="'+esc(href)+'" aria-label="'+label+'">'+content+'</a>':'<span class="wcs-page-control '+kind+'" aria-disabled="true">'+content+'</span>';
       const paging='<div class="discovery-pagination"><span>'+(items.length?(first==null?items.length+' '+(items.length===1?'result':'results')+' on this page':'Showing '+(first+1)+'–'+(first+items.length)+(result.total!=null?' of '+result.total:'')):'No results on this page')+'</span><nav class="wcs-pagination" aria-label="Document pages">'+control(previous,previousLabel,'wcs-page-previous','<span aria-hidden="true">←</span><span class="wcs-page-direction">'+(previousLabel==='First page'?'First':'Previous')+'</span>')+'<ol class="wcs-page-numbers"><li><span class="wcs-page-control is-current" aria-current="page">'+page+'</span></li></ol>'+control(next,'Next page','wcs-page-next','<span class="wcs-page-direction">Next</span><span aria-hidden="true">→</span>')+'</nav></div>';
       mount.innerHTML=(items.length?'<div class="press-card-list">'+items.map(item=>nativeResultCard(item,options.query)).join('')+'</div>':empty(next?'Continue searching':'No matching pages',next?'More pages are available. Use Next to continue searching.':'Try another keyword or remove a filter. Only pages you can access are included.','Search all WCSpedia',url('/results')))+(items.length||previous||next?paging:'');
+      loadViewCounts(false);
       wirePageLinks(mount);
     }catch(error){
       if(current()&&!controller.signal.aborted){count.textContent='Search unavailable';mount.innerHTML='<div class="library-unavailable" role="alert"><strong>Unable to search Confluence</strong><p>'+esc(error.message)+'</p><button class="button secondary" data-action="retry-native-search">Try again</button><a class="button secondary" href="'+esc(url('/results',values))+'">Start from the first page</a></div>';wirePageLinks(mount);}
@@ -729,9 +759,9 @@
     if(window.WCSEditorContent.isInsightType(doc.type))return '<aside class="control-panel" aria-label="Article details"><div class="control-head"><h2>Article details</h2>'+icon('file')+'</div><div class="control-version">'+badge(status)+'<span>v'+v.version+' · r'+v.revision+'</span></div><div class="control-summary">'+meta('Author',who(doc.authorId))+meta('Destination','Insights')+meta('Published',v.publishedAt||v.approvedAt?date(v.publishedAt||v.approvedAt):'Not published')+'</div><p class="quiet-note">Edits publish directly to Insights.</p><div class="control-history-links"><a class="link" href="'+docUrl(doc.id,'versions',v.version)+'">Version history '+icon('arrow')+'</a>'+(canManage(doc)?'<a class="link" href="'+docUrl(doc.id,'audit',v.version)+'">Full audit trail '+icon('arrow')+'</a>':'')+'</div></aside>';
     return '<aside class="control-panel" aria-label="Document control"><div class="control-head"><h2>Document control</h2>'+icon('shield')+'</div><div class="control-version">'+badge(status)+'<span>v'+v.version+' · r'+v.revision+'</span></div><div class="control-summary">'+meta('Document owner',who(doc.ownerId))+meta('Approved by',v.approvedBy?who(v.approvedBy):'<span>Pending approval</span>',v.approvedBy?'Approved '+date(v.approvedAt):'Assigned to '+person(doc.approverId).name)+meta('Next review'+(v.governance?' · business target':''),v.governance?(v.version===doc.publishedVersion&&library?.report(doc)?.reviewTarget?date(library.report(doc).reviewTarget):v.nextReviewAt?date(v.nextReviewAt):'Set on approval'):(v.nextReviewAt?date(v.nextReviewAt):'Set on approval'))+'</div><details class="control-details"><summary><span class="control-expand-label">More control details</span><span class="control-collapse-label">Fewer control details</span>'+icon('chevron')+'</summary><div class="control-details-body">'+meta('Document key','<code class="document-key">'+esc(doc.id)+'</code>')+meta('Written by',who(doc.authorId))+meta('Reviewed by',v.reviewedBy?who(v.reviewedBy):'<span>Pending review</span>',v.reviewedBy?date(v.reviewedAt):'Assigned to '+person(doc.reviewerId).name)+meta('Effective from',v.effectiveAt?date(v.effectiveAt):'On approval')+'</div></details><div class="control-history-links"><a class="link" href="'+docUrl(doc.id,'versions',v.version)+'">Version history '+icon('arrow')+'</a>'+(canManage(doc)?'<a class="link" href="'+docUrl(doc.id,'audit',v.version)+'">Full audit trail '+icon('arrow')+'</a>':'')+'</div><p class="quiet-note">Control information applies to the version shown.</p></aside>';
   }
-  function articleCover(v) {
+  function articleCover(v,doc) {
     let cover=null;try{if(v.cover)cover=window.WCSEditorContent.validateCover(v.cover);}catch(_){}
-    return cover?'<figure class="insights-cover"><img src="'+esc(cover.src)+'" alt="'+esc(cover.alt)+'">'+(cover.caption?'<figcaption>'+esc(cover.caption)+'</figcaption>':'')+'</figure>':'<div class="insights-art" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>';
+    return cover||doc?'<figure class="insights-cover">'+coverImage(doc?.id||v.id||v.title,cover,'',false)+(cover?.caption?'<figcaption>'+esc(cover.caption)+'</figcaption>':'')+'</figure>':'<div class="insights-art" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>';
   }
   function keyHighlights(v) {
     const bullets=v.sections.flatMap(s=>s.bullets);
@@ -748,7 +778,7 @@
     else if(v.status!=='Published')notice='<div class="version-notice warning">'+icon('clock')+'<span>Working version. '+(published?'Version '+published.version+' remains published.':'This content is not published to readers.')+'</span></div>';
     else if(published&&v.version!==published.version)notice='<div class="version-notice warning">'+icon('clock')+'<span>Historical version. Version '+published.version+' is current.</span><a class="link" href="'+docUrl(doc.id,'content',published.version)+'">Read current version '+icon('arrow')+'</a></div>';
     const related=window.WCSDiscovery.relatedDocuments(documents,doc,v,workflow,3);
-    return '<div class="detail-page insights-page"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a>'+icon('chevron')+'<a href="'+url('/results',{type:doc.type})+'">'+esc(typeUI.typeLabel(doc.type))+'</a>'+icon('chevron')+'<span>'+esc(doc.reference)+'</span></nav><section class="insights-header"><a class="insights-category" href="'+(doc.area==='insights'?url('/insights'):url('/topic/'+doc.area))+'">'+esc(doc.area==='insights'?'Insights':a?.title||'Wealth Credit Services')+'</a><h1>'+esc(v.title)+'</h1><div class="insights-byline"><span>'+esc(typeUI.typeLabel(doc.type))+'</span><span>•</span><span>'+ (v.publishedAt||v.approvedAt?date(v.publishedAt||v.approvedAt):'Draft · '+date(v.createdAt))+'</span><span>•</span>'+readingMarkup(v)+(workflow.publishedVersion(doc)?'<span>•</span>'+viewsMarkup(doc):'')+'</div></section>'+(tab==='content'?articleCover(v):'')+'<div class="article-utility"><div><div class="wcs-status-group">'+badge(v.status)+governanceUI.tag(v,doc)+(library?.tag(doc)||'')+'</div><span>By '+esc(person(doc.authorId).name)+'</span><span>Version '+v.version+' · revision '+v.revision+'</span></div><div class="heading-actions">'+(library?.bookmarkButton(doc)||'')+'<button class="button secondary compact" data-action="copy">'+icon('link')+'Copy link</button><button class="button secondary compact" data-action="copy-markdown">'+icon('file')+'Copy Markdown</button><button type="button" class="button secondary compact" data-wcs-export aria-haspopup="menu" aria-expanded="false">'+icon('download')+'Download</button>'+(action?'<button class="button secondary compact document-edit-action" data-action="'+action+'">'+icon('edit')+actionLabels[action]+'</button>':'')+(actionsFor(doc).includes('delete')?'<button class="button danger compact document-delete-action" data-action="delete">Delete document</button>':'')+'</div></div>'+notice+'<nav class="tabs" aria-label="Document sections">'+[['content','Article'],['health','Content health'],['versions','Version history'],...(managed?[['audit','Audit trail']]:[])].map(([key,label])=>'<a class="'+(tab===key?'active':'')+'" '+(tab===key?'aria-current="page"':'')+' href="'+docUrl(doc.id,key,v.version)+'">'+label+'</a>').join('')+'</nav><div class="detail-layout"><div class="detail-main">'+({content:()=>contentView(doc,v),versions:()=>versionsView(doc),audit:()=>auditView(doc),health:()=>'<div data-content-health="'+esc(doc.id)+'"></div>'}[tab])()+'</div>'+controls(doc,v)+'</div>'+(tab==='content'&&related.length?'<section class="insights-related"><div class="related-heading"><h2>Keep your knowledge growing.</h2><p>Related training, articles, and practical guidance.</p></div><div class="featured-grid">'+related.map(featuredCard).join('')+'</div></section>':'')+'</div></div>';
+    return '<div class="detail-page insights-page"><div class="discovery-container"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="#/">WCSpedia</a>'+icon('chevron')+'<a href="'+url('/results',{type:doc.type})+'">'+esc(typeUI.typeLabel(doc.type))+'</a>'+icon('chevron')+'<span>'+esc(doc.reference)+'</span></nav><section class="insights-header"><a class="insights-category" href="'+(doc.area==='insights'?url('/insights'):url('/topic/'+doc.area))+'">'+esc(doc.area==='insights'?'Insights':a?.title||'Wealth Credit Services')+'</a><h1>'+esc(v.title)+'</h1><div class="insights-byline"><span>'+esc(typeUI.typeLabel(doc.type))+'</span><span>•</span><span>'+ (v.publishedAt||v.approvedAt?date(v.publishedAt||v.approvedAt):'Draft · '+date(v.createdAt))+'</span><span>•</span>'+readingMarkup(v)+(workflow.publishedVersion(doc)?'<span>•</span>'+viewsMarkup(doc):'')+'</div></section>'+(tab==='content'?articleCover(v,doc):'')+'<div class="article-utility"><div><div class="wcs-status-group">'+badge(v.status)+governanceUI.tag(v,doc)+(library?.tag(doc)||'')+'</div><span>By '+esc(person(doc.authorId).name)+'</span><span>Version '+v.version+' · revision '+v.revision+'</span></div><div class="heading-actions">'+(library?.bookmarkButton(doc)||'')+'<button class="button secondary compact" data-action="copy">'+icon('link')+'Copy link</button><button class="button secondary compact" data-action="copy-markdown">'+icon('file')+'Copy Markdown</button><button type="button" class="button secondary compact" data-wcs-export aria-haspopup="menu" aria-expanded="false">'+icon('download')+'Download</button>'+(action?'<button class="button secondary compact document-edit-action" data-action="'+action+'">'+icon('edit')+actionLabels[action]+'</button>':'')+(actionsFor(doc).includes('delete')?'<button class="button danger compact document-delete-action" data-action="delete">Delete document</button>':'')+'</div></div>'+notice+'<nav class="tabs" aria-label="Document sections">'+[['content','Article'],['health','Content health'],['versions','Version history'],...(managed?[['audit','Audit trail']]:[])].map(([key,label])=>'<a class="'+(tab===key?'active':'')+'" '+(tab===key?'aria-current="page"':'')+' href="'+docUrl(doc.id,key,v.version)+'">'+label+'</a>').join('')+'</nav><div class="detail-layout"><div class="detail-main">'+({content:()=>contentView(doc,v),versions:()=>versionsView(doc),audit:()=>auditView(doc),health:()=>'<div data-content-health="'+esc(doc.id)+'"></div>'}[tab])()+'</div>'+controls(doc,v)+'</div>'+(tab==='content'&&related.length?'<section class="insights-related"><div class="related-heading"><h2>Keep your knowledge growing.</h2><p>Related training, articles, and practical guidance.</p></div><div class="featured-grid">'+related.map(featuredCard).join('')+'</div></section>':'')+'</div></div>';
   }
   function sections(v) { if(v.bodyMarkdown)return '<div class="markdown-body">'+window.WCSEditorContent.render(v.bodyMarkdown,v)+'</div>';return v.sections.map(s=>'<section class="section" id="section-'+esc(s.id)+'"><h2>'+esc(s.title)+'</h2>'+s.paragraphs.map(p=>'<p>'+esc(p)+'</p>').join('')+(s.bullets.length?'<ul>'+s.bullets.map(b=>'<li>'+esc(b)+'</li>').join('')+'</ul>':'')+'</section>').join(''); }
   function taxonomyView(doc,v) {
@@ -881,6 +911,8 @@
       history.replaceState(null,'',target);
     }
     const r=route(); let content;
+    const currentHash=window.WCSNavigation.routeHash(config,location.hash);
+    if(window.WCSNavigation.isListRoute(currentHash))lastListHash=currentHash;
     if(!(r.path==='/'||r.path.startsWith('/topic/')||r.path==='/results'&&(!r.params.get('view')||r.params.get('view')==='published')))cancelNativePrefetch();
     if(r.path==='/'&&r.params.get('focus')==='search'){
       focusSearchOnRender=true;
@@ -895,7 +927,7 @@
     if(needsWorkspaceSession()){
       if(fullSessionErrorScope!==requestedWorkspaceScope())fullSessionError=null;
       window.WCSUI.destroy(root);
-      root.innerHTML=fullSessionError?'<div class="library-unavailable" role="alert"><strong>This page could not load</strong><p>'+esc(fullSessionError.message)+'</p><button class="button secondary" data-action="retry-workspace-session">Try again</button></div>':window.WCSLoadingOverlay.skeleton('Loading your workspace…');
+      root.innerHTML=fullSessionError?'<div class="library-unavailable" role="alert"><strong>This page could not load</strong><p>'+esc(fullSessionError.message)+'</p><button class="button secondary" data-action="retry-workspace-session">Try again</button></div>':'';
       if(!fullSessionError)loadFullSession();
       cancelNativeLanding();return;
     }
@@ -922,9 +954,9 @@
     if(chartSummary)chartView=window.WCSWorkspaceCharts.mount(root,chartSummary,config.charts||{});
     focusLandingSearch();
     document.title=(r.path.startsWith('/document/')?(selectedDocument().v?.title||'Document')+' · ':'')+'WCSpedia';
-    if(root.querySelector('#native-search-results'))loadNativeResults();
-    if(root.querySelector('#wcs-insights-content')){insightsState=null;paintInsights();loadInsights();}
-    if(root.querySelector('#native-landing-documents'))loadNativeLanding();else cancelNativeLanding();
+    if(root.querySelector('#native-search-results'))pageLoading(loadNativeResults(),'Searching documents…');
+    if(root.querySelector('#wcs-insights-content')){insightsState=null;paintInsights();pageLoading(loadInsights(),'Loading Insights…');}
+    if(root.querySelector('#native-landing-documents')){const pending=loadNativeLanding();if(!nativeLanding.recentReady)pageLoading(landingPaintPromise||pending,'Loading the latest documents…');}else cancelNativeLanding();
   }
   function toast(message,options={}) {
     const detail={type:'success',...options};
@@ -945,7 +977,7 @@
     const state=selectedDocument(), doc=documentId?documents.find(d=>d.id===documentId&&!d.deletedAt):state.doc, v=doc?workflow.currentVersion(doc):null;
     if(!canWrite()||!doc||!actionsFor(doc).includes(action))return;
     savedFocus=document.activeElement;
-    modal={hash:location.hash,url:location.href,action,docId:doc.id,actorId,expectedVersion:v.version,expectedRevision:v.revision,expectedAuditLength:doc.audit.length};
+    modal={returnAfterDelete:window.WCSNavigation.afterDelete(config,location.hash,lastListHash),hash:location.hash,url:location.href,action,docId:doc.id,actorId,expectedVersion:v.version,expectedRevision:v.revision,expectedAuditLength:doc.audit.length};
     const title=actionLabels[action],description=v.title+' · v'+v.version+' / revision '+v.revision;
     const desc={submit:'Send this revision to '+person(doc.reviewerId).name+' for content review. It will remain unavailable to readers until approved.','complete-review':'Confirm you have reviewed this exact revision. This records your review and moves it to manager approval.',approve:'Approve the reviewed revision and publish it now. Any previous approved version remains in the history.','request-changes':'Return this version to the author with clear feedback. It will need review again.',revise:'Create an editable draft from the approved content. The current approved version stays available to readers.',delete:'Delete this entire document from the knowledge library. Its versions and deletion record remain in the restricted audit history.'+(live?' The linked page will be moved to Confluence trash.':' This prototype only changes the local sample data.')};
     let fields='<div class="modal-summary">'+esc(desc[action])+'</div>';
@@ -954,7 +986,7 @@
     if(action==='complete-review')fields+=governanceUI.reviewForm(doc,v);
     if(action==='delete')fields+='<div class="wcs-delete-key-heading"><label for="delete-key">Confirm document key</label><div><span id="delete-document-key" class="wcs-delete-key-value">'+esc(doc.id)+'</span><button type="button" class="button secondary" data-action="copy-document-key" aria-label="Copy document key">'+icon('copy')+' Copy</button></div></div><input id="delete-key" name="delete-key" required autocomplete="off" aria-describedby="delete-document-key" placeholder="Paste the document key to confirm">';
     fields+=field('action-comment',action==='revise'?'Change summary':'Decision comment','','textarea','required maxlength="2000" placeholder="Explain this change or decision for the audit trail."');
-    workflowDialog=window.WCSUI.dialog({title,body:'<p class="workflow-dialog-description">'+esc(description)+'</p><form id="workflow-form" novalidate><div id="form-error" class="form-error" role="alert" hidden></div>'+fields+'<div class="modal-actions"><button type="button" class="button secondary" data-action="close">Cancel</button><button class="button '+(action==='delete'?'danger':'')+'" type="submit">'+esc(title)+'</button></div></form>',onClose(){if(modal?.saving||modal?.reloadRequired)return false;const refresh=modal?.reloadOnClose;modal=null;workflowDialog=null;if(refresh)queueMicrotask(render);}});
+    workflowDialog=window.WCSUI.dialog({title,body:'<p class="workflow-dialog-description">'+esc(description)+'</p><form id="workflow-form" novalidate><div id="form-error" class="form-error" role="alert" hidden></div>'+fields+'<div class="modal-actions"><button type="button" class="button secondary" data-action="close">Cancel</button><button class="button '+(action==='delete'?'danger':'')+'" type="submit">'+esc(title)+'</button></div></form>',onClose(){if(modal?.saving||modal?.reloadRequired)return false;const refresh=modal?.reloadOnClose;modal=null;workflowDialog=null;if(refresh)queueMicrotask(()=>{if(root.isConnected)render();});}});
   }
   function closeModal(){if(modal?.saving||modal?.reloadRequired)return;workflowDialog?.close();}
   async function saveAction(form) {
@@ -975,7 +1007,7 @@
       let persisted=true;
       if(live){session=await (m.action==='delete'?adapter.deleteDocument:adapter.submitAction)(Object.assign(command,{expectedAttachmentVersion:session.attachmentVersion}));data=session.data;documents=clone(data.documents);actorId=session.actorId;result=documents.find(d=>d.id===result.id);if(!result&&m.action!=='delete')throw Error('The action was accepted but this document is no longer visible. Reload the workspace.');}
       else {const index=documents.findIndex(d=>d.id===result.id);documents[index]=result;persisted=persist();}
-      m.saving=false;workflowDialog?.setBusy(false);closeModal();history.replaceState(null,'',m.action==='delete'?url('/results'):url('/review/'+result.id));render();loadViewCounts();
+      m.saving=false;workflowDialog?.setBusy(false);closeModal();if(m.action==='delete')clearNativeBrowse();history.replaceState(null,'',m.action==='delete'?m.returnAfterDelete:url('/review/'+result.id));render();loadViewCounts();
       toast(labels[m.action]+(persisted?' · audit event recorded.':' · saved in memory only; browser storage unavailable.'),{type:persisted?'success':'warning'});
     } catch(error) {
       toast(error.message,{type:'error'});m.saving=false;workflowDialog?.setBusy(false);m.reloadOnClose=true;const box=root.querySelector('#form-error');box.hidden=false;box.textContent=error.message;
@@ -1009,7 +1041,13 @@
     if(target.dataset.audit){const r=route(),p=Object.fromEntries(r.params);p[target.dataset.audit]=target.value;p.historyPage=1;go(url(r.path,p));}
   });
   // Retain the readable wordmark if an attachment is missing or unavailable.
-  root.addEventListener('error',event=>{if(event.target.matches?.('.discovery-brand-logo'))event.target.hidden=true;},true);
+  root.addEventListener('error',event=>{
+    const img=event.target;if(img.matches?.('.discovery-brand-logo'))img.hidden=true;
+    if(img.matches?.('img[data-wcs-cover-fallback]')&&!img.closest('.wcs-insights-cover')){
+      if(img.dataset.wcsCoverDefault!=='true'){img.dataset.wcsCoverDefault='true';img.src=img.dataset.wcsCoverFallback;}
+      else{img.removeAttribute('src');img.classList.add('wcs-cover-unavailable');img.alt='Article cover unavailable';}
+    }
+  },true);
   root.addEventListener('click',event=>{
     const clear=event.target.closest('[data-clear-search]');if(!clear)return;
     event.preventDefault();const input=clear.closest('form')?.querySelector('[data-suggest]');if(!input)return;
@@ -1066,7 +1104,7 @@
   document.addEventListener('visibilitychange',()=>{scheduleDocumentView();resumeVisibleReads();});
   window.addEventListener('focus',()=>resumeVisibleReads());
   window.addEventListener('online',()=>resumeVisibleReads());
-  window.addEventListener('pagehide',()=>{loading.hide();publishedRead?.controller?.abort();publishedRead=null;clearTimeout(viewTimer);viewVisit=null;dismissSuggestions();cancelChildSearch();stopInsights();clearNativeBrowse();cancelFullSession();});
+  window.addEventListener('pagehide',()=>{pageReads.clear();loading.hide();publishedRead?.controller?.abort();publishedRead=null;clearTimeout(viewTimer);viewVisit=null;dismissSuggestions();cancelChildSearch();stopInsights();clearNativeBrowse();cancelFullSession();});
   window.addEventListener('pageshow',event=>{
     if(!event.persisted||!live)return;
     if(!preparePublishedReader())return;
@@ -1095,8 +1133,7 @@
   if(nativeDiscoveryReady||live&&route().path!=='/saved'){
     // The authorized page and CQL search are ready to use. Saved items and
     // health checks have their own states and must not keep discovery inert.
-    loading.progress(3,3,'Search is ready.');
-    loading.hide();
+    startupFinished=true;finishLoading();
     focusLandingSearch();
     loadViewCounts();
     void loading.wait(libraryLoading).then(()=>{
@@ -1111,7 +1148,7 @@
     loading.progress(2,3,'Preparing your page…');
     if(!editor&&!modal&&!root.querySelector('[aria-modal="true"]')&&(!live||!root.querySelector('#native-search-results,#native-landing-documents,#wcs-insights-content')))render();
     loading.progress(3,3,'Your page is ready.');
-    loading.hide();
+    startupFinished=true;finishLoading();
     focusLandingSearch();
     loadViewCounts();
   }

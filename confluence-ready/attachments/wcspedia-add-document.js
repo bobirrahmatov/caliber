@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === 'fe5d45027236') return;
+  if (registry.addDocument && registry.addDocument.version === 'a4d7c14d8c57') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -130,6 +130,13 @@
   var TYPE_GROUPS = Object.freeze({Procedure:'Guide',Playbook:'Guide',Checklist:'Guide','Knowledge sharing':'Training',Reference:'Report',Template:'Report',FAQ:'Report'});
   function groupType(type) { return TYPE_GROUPS[type] || type; }
   function typeLabel(type) { return ({Guide:'Guides',Blog:'Blogs',Training:'Training',Report:'Reports','Job aid':'Job aids'})[groupType(type)] || type; }
+  function insightCoverUrl(key,options) {
+    options=options||{};var id=String(key||''),hash=2166136261;
+    for(var i=0;i<id.length;i++)hash=Math.imul(hash^id.charCodeAt(i),16777619)>>>0;
+    var file='wcs-insight-cover-'+String(hash%50+1).padStart(2,'0')+'.jpg';
+    var host=String(options.attachmentPageId||''),context=String(options.contextPath||'/confluence').replace(/\/$/,'');
+    return /^[1-9]\d{0,19}$/.test(host)&&/^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/.test(context)?context+'/download/attachments/'+host+'/'+file+'?api=v2':'assets/insights-covers/'+file;
+  }
   function topicLabel(value) {
     return String(value == null ? '' : value).trim().replace(/[-_]+/g,' ').replace(/\b[a-zA-Z]+\b/g,function(word){
       if (/^(?:emea|apac|latam|uk|us|usa|eu|faq|api|wcs|kyc|aml|esg|mdx)$/i.test(word)) return word.toUpperCase();
@@ -828,7 +835,7 @@
     normalizeImport(result);
     return result;
   }
-  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, topicLabel: topicLabel, starterTemplate: starterTemplate, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
+  return Object.freeze({ INSIGHT_TYPES: INSIGHT_TYPES, INSIGHT_CHOICES: INSIGHT_CHOICES, CREATE_TYPES: CREATE_TYPES, insightCoverUrl: insightCoverUrl, topicLabel: topicLabel, starterTemplate: starterTemplate, groupType: groupType, typeLabel: typeLabel, typeMembers: typeMembers, isInsightType: isInsightType, publicationModeFor: publicationModeFor, isDirectPublication: isDirectPublication, fromSections: fromSections, toSections: toSections, render: render, validateCover: validateCover, validateAssets: validateAssets, validateAttachments: validateAttachments, validateTags: validateTags, validateReferences: validateReferences, validateSourceMetadata: validateSourceMetadata, validateCommentsEnabled: validateCommentsEnabled, safeUrl: safeUrl, normalizeImport: normalizeImport, toMarkdown: toMarkdown, toMDX: toMDX, governanceDetails: governanceDetails, videoEmbed: videoEmbed, videoMarkdown: videoMarkdown, videoToken: videoToken });
 });
 
 ;
@@ -1905,7 +1912,7 @@ function renderStorage(document, selected, people = [], options = {}) {
   out += '<ac:structured-macro ac:name="anchor" ac:schema-version="1"><ac:parameter ac:name="">wcs-comments-v1-' + (version.commentsEnabled ? 'enabled' : 'disabled') + '</ac:parameter></ac:structured-macro>';
   out += '<ac:structured-macro ac:name="details" ac:schema-version="1"><ac:parameter ac:name="id">wcspedia-document</ac:parameter>' + (article ? '<ac:parameter ac:name="hidden">true</ac:parameter>' : '') + '<ac:rich-text-body>' + table(rows) + '</ac:rich-text-body></ac:structured-macro>';
   if (article) {
-    out += version.cover ? '<div class="wcs-native-article-cover">' + imageTag(staged(options, '$cover', version.cover.src), version.cover.alt) + (version.cover.caption ? '<p>' + xml(version.cover.caption) + '</p>' : '') + '</div>' : '<div class="wcs-native-article-art" aria-hidden="true"></div>';
+    out += version.cover ? '<div class="wcs-native-article-cover">' + imageTag(staged(options, '$cover', version.cover.src), version.cover.alt) + (version.cover.caption ? '<p>' + xml(version.cover.caption) + '</p>' : '') + '</div>' : '<div class="wcs-native-article-cover">'+'<ac:structured-macro ac:name="html" ac:schema-version="1"><ac:plain-text-body>'+cdata('<img src="'+xml(content.insightCoverUrl(document.id,{attachmentPageId:options.attachmentPageId,contextPath:options.contextPath}))+'" alt="" decoding="async" />')+'</ac:plain-text-body></ac:structured-macro>'+'</div>';
     out += '<div class="wcs-native-article-layout"><div class="wcs-native-article-body">';
   }
   if (version.summary) out += '<ac:structured-macro ac:name="excerpt" ac:schema-version="1"><ac:rich-text-body><p>' + xml(version.summary) + '</p></ac:rich-text-body></ac:structured-macro>';
@@ -2268,7 +2275,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     async function bodyWrite(p,document,media,kind,requestId,expectedParent,signal){
       if(marked(p,'wcs-operation-'+requestId)){p.readerReady=marked(p,'wcs-reader-v1');return p;}
       var initial=markers(p).find(function(value){return /^wcs-created-[a-zA-Z0-9-]{16,100}$/.test(value);});
-      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,readerSidebarUrl:context+'/download/attachments/'+numeric(config.attachmentPageId||rootId)+'/wcspedia-reader-sidebar.js?api=v2',readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
+      var v=W.currentVersion(document),body=(initial?anchor(initial):'')+anchor('wcs-document-'+document.id)+anchor('wcs-kind-'+kind)+anchor('wcs-operation-'+requestId)+(kind==='published'?anchor('wcs-reader-v1'):'')+Renderer.renderStorage(document,v,document._people||[],{media:media,operation:kind==='published'?'published':'working',hostStyleFlags:true,attachmentPageId:numeric(config.attachmentPageId||rootId),contextPath:context,readerSidebarUrl:context+'/download/attachments/'+numeric(config.attachmentPageId||rootId)+'/wcspedia-reader-sidebar.js?api=v2',readerPageId:kind==='published'?p.id:null,readerRootId:rootId,readerNativeVersion:p.version.number+1,insightsUrl:context+'/pages/viewpage.action?pageId='+insightsId});
       var suffix=' · WCS '+p.id;
       var title=kind==='published'?v.title.slice(0,250-suffix.length)+suffix:'WCSpedia working '+document.id;
       var response=await request('/rest/api/content/'+p.id,'PUT',{id:p.id,type:'page',title:title.slice(0,250),space:{key:space},ancestors:[{id:expectedParent}],version:{number:p.version.number+1,message:'WCSpedia '+kind+' '+v.status+' v'+v.version+' r'+v.revision+' · '+requestId},body:{storage:{representation:'storage',value:body}}},signal);
@@ -2676,6 +2683,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     if (typeof entitlementFilename !== 'string' || entitlementFilename.length > 255 || !/^[A-Za-z0-9][A-Za-z0-9._ -]*\.json$/.test(entitlementFilename) || entitlementFilename.indexOf('..') >= 0) fail('Use a simple JSON entitlementsFilename.', 'CONFIGURATION');
     var policyConfigured = /^[1-9]\d*$/.test(entitlementPageId);
     var last = null;
+    var discoveryMetrics = new Map();
     var pendingCommand = null;
     var accessLast = null, pendingEntitlementCommand = null;
     var spaceStore = null, spaceWorkflow = null, spaceEngagement = null;
@@ -3007,7 +3015,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var crypto = dependencies.crypto || root.crypto;
       if (!crypto || !crypto.randomUUID) fail('Web Crypto is required for recovery.', 'CONFIGURATION');
       await nativeStorage().reconcileJSON(preview, {requestId:'entitlement-recovery-' + crypto.randomUUID()});
-      accessLast = null; last = null;
+      accessLast = null; last = null; discoveryMetrics.clear();
       return true;
     }
     async function resolveAccess(user, documentPages, existing, signal) {
@@ -3524,6 +3532,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     function metricDocument(key) {
       var doc = last && last.data.documents.find(function (d) { return d.id === key && !d.deletedAt; });
       var published = doc && doc.versions.find(function (v) { return v.version === doc.publishedVersion && v.status === 'Published'; });
+      if((!doc||!published)&&discoveryMetrics.has(key))return discoveryMetrics.get(key);
       if (!doc || !published || !publishedPageId(doc)) fail('Recorded views require a loaded, published WCSpedia document.', 'METRICS_UNAVAILABLE');
       return { pageId: publishedPageId(doc), version: published.version, revision: published.revision };
     }
@@ -3538,7 +3547,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         var jobs = queue.map(function (key) { return { key: key, doc: metricDocument(key) }; });
         await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, async function () {
           while (jobs.length) {
-            var job = jobs.shift(), result = await nativeMetrics().load(job.doc.pageId);
+            var job = jobs.shift(), metrics = nativeMetrics(), result = await (metrics.loadViews || metrics.load)(job.doc.pageId);
             if (!result || String(result.pageId) !== job.doc.pageId || !result.views || !integer(result.views.recordedViews, 0)) fail('Recorded views could not be confirmed.', 'INVALID_METRICS');
             nativeCounts[job.key] = result.views.recordedViews;
           }
@@ -3813,6 +3822,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           var data = JSON.parse(snapshot.textContent), v = data.document?.versions?.find(function (v) { return v.version === data.document.publishedVersion && v.status === 'Published'; });
           if (data.format === 1 && data.pageId === String(item.id) && data.nativeVersion === item.version?.number && snapshot.getAttribute('data-wcs-reader-root') === pageId && v) {
             fields.summary = plain(v.summary || ''); fields.cover = v.cover || null;
+            fields.documentKey=data.document.id;
+            var author=(data.people||[]).find(function(person){return person.id===(data.document.authorId||v.createdBy);});
+            fields.author=author?plain(author.name||author.displayName||''):null;
+            if(metricKey(fields.documentKey)&&integer(v.version)&&integer(v.revision)){
+              discoveryMetrics.set(fields.documentKey,{pageId:String(item.id),version:v.version,revision:v.revision});
+              if(discoveryMetrics.size>256)discoveryMetrics.delete(discoveryMetrics.keys().next().value);
+            }
             textBody += ' ' + String(v.bodyMarkdown || '') + ' ' + JSON.stringify(v.sections || []);
           }
         } catch (_) { /* Legacy pages can still provide a native text excerpt. */ }
@@ -3938,7 +3954,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       }
       var position = options.continuation == null ? { start: start } : continuationPosition(options.continuation, cql, limit);
       var expanded = tree ? (options.excerpt === false ? 'space,ancestors' : 'version,space,ancestors,metadata.labels') : 'version,space,ancestors';
-      if (options.insights) expanded += ',body.storage';
+      if (tree && options.excerpt !== false) expanded += ',body.storage';
       if (scope.additionalSubtreePageId && expanded.indexOf('metadata.labels') < 0) expanded += ',metadata.labels';
       var contentTransport = options.continuation ? options.continuation.transport === 'content' : preferContentSearch;
       async function fetchResults(useContent) {
@@ -4018,7 +4034,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       response.results.forEach(function (result) { if (!checkScope(result, !contentTransport)) incomplete = true; });
       if (incomplete) {
         // A single bounded Content query repeats the exact root/space/area CQL.
-        // No body expansion, per-page fetch or whole-space fallback is used.
+        // Visible-card metadata stays in this batch; no per-page fetch or whole-space fallback.
         if (position.cursor) fail('Confluence omitted metadata on a cursor page. Restart this search.', 'INVALID_SCOPE');
         response = await fetchResults(true);
         response.results.forEach(function (result) { checkScope(result, false); });
@@ -4044,10 +4060,12 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
           normalized.type = typeof search.typeFromLabel === 'function' ? names.map(search.typeFromLabel).find(Boolean) || null : null;
           normalized.tags = names.filter(function (name) { return /^wcs-tag-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name); }).map(function (name) { return name.slice(8); });
           normalized.version = integer((item.version || {}).number) ? item.version.number : null;
-          if (options.insights) {
+          if (options.excerpt !== false) {
             var card = discoveryBody(item);
             if (card.summary) normalized.summary = card.summary;
             if (card.cover) normalized.cover = card.cover;
+            if(card.documentKey)normalized.documentKey=card.documentKey;
+            if(card.author)normalized.author=card.author;
           }
         }
         return normalized;
@@ -4536,5 +4554,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: 'fe5d45027236', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
+  registry.addDocument = { version: 'a4d7c14d8c57', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
 })();
