@@ -16,13 +16,23 @@
     box.textContent = message;
     mount.replaceChildren(box);
   }
-  if (mount.getAttribute('data-wcs-page-role') !== 'entitlements' || !window.WCS_CONFIG || window.WCS_CONFIG.pageRole !== 'entitlements') {
-    failPage('The WCSpedia JavaScript does not match this HTML macro. Use the wcspedia-entitlements.html settings and its matching JavaScript pair.');
+  if (document.querySelectorAll('[id="wcspedia"]').length !== 1) {
+    failPage('This page contains more than one WCSpedia application macro. Keep one matching page macro in the page body; do not place an application macro in navBar.');
     return;
   }
+  const configuredRole = window.WCS_CONFIG && window.WCS_CONFIG.pageRole;
+  const markedRole = mount.getAttribute('data-wcs-page-role');
+  if (configuredRole !== 'entitlements' || (markedRole && markedRole !== 'entitlements')) {
+    failPage('The WCSpedia JavaScript does not match this HTML macro. Script role: entitlements; settings role: ' + (configuredRole || 'missing') + '; HTML marker: ' + (markedRole || 'missing') + '. Use wcspedia-entitlements.html with wcspedia-entitlements.js and wcspedia-entitlementsHTMLPage.js on the same page.');
+    return;
+  }
+  // Older page fragments do not include this optional DOM marker. Recreate it
+  // only after the inline settings agree with this role-specific script. A
+  // conflicting marker/configuration or a mismatched pair still fails closed.
+  if (!markedRole) mount.setAttribute('data-wcs-page-role', 'entitlements');
 
   if (mount.dataset.wcsPageStarted) return;
-  if (!window.WCSPageModules || window.WCSPageModules['entitlements']?.version !== 'a9beed507df9') {
+  if (!window.WCSPageModules || window.WCSPageModules['entitlements']?.version !== 'aa083bc91fba') {
     failPage('Load wcspedia-entitlements.js before wcspedia-entitlementsHTMLPage.js. Use both files from the same upload package and check their attachment URLs.');
     return;
   }

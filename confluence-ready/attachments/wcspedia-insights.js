@@ -16,10 +16,20 @@
     box.textContent = message;
     mount.replaceChildren(box);
   }
-  if (mount.getAttribute('data-wcs-page-role') !== 'insights' || !window.WCS_CONFIG || window.WCS_CONFIG.pageRole !== 'insights') {
-    failPage('The WCSpedia JavaScript does not match this HTML macro. Use the wcspedia-insights.html settings and its matching JavaScript pair.');
+  if (document.querySelectorAll('[id="wcspedia"]').length !== 1) {
+    failPage('This page contains more than one WCSpedia application macro. Keep one matching page macro in the page body; do not place an application macro in navBar.');
     return;
   }
+  const configuredRole = window.WCS_CONFIG && window.WCS_CONFIG.pageRole;
+  const markedRole = mount.getAttribute('data-wcs-page-role');
+  if (configuredRole !== 'insights' || (markedRole && markedRole !== 'insights')) {
+    failPage('The WCSpedia JavaScript does not match this HTML macro. Script role: insights; settings role: ' + (configuredRole || 'missing') + '; HTML marker: ' + (markedRole || 'missing') + '. Use wcspedia-insights.html with wcspedia-insights.js and wcspedia-insightsHTMLPage.js on the same page.');
+    return;
+  }
+  // Older page fragments do not include this optional DOM marker. Recreate it
+  // only after the inline settings agree with this role-specific script. A
+  // conflicting marker/configuration or a mismatched pair still fails closed.
+  if (!markedRole) mount.setAttribute('data-wcs-page-role', 'insights');
 
   const modules = window.WCSPageModules = window.WCSPageModules || {};
   if (modules['insights']) return;
@@ -9945,5 +9955,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['insights'] = { version: 'a9beed507df9' };
+  modules['insights'] = { version: 'aa083bc91fba' };
 })();
