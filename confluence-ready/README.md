@@ -1,3 +1,47 @@
+# Complete package — 26 October 2026
+
+Start here for this installation. The dated sections below describe individual updates; install this complete matching set rather than mixing files from earlier ZIPs.
+
+1. Extract the ZIP. Upload **every file in `confluence-ready/attachments/`** to attachment page **3962195316**, replacing matching filenames. Do not upload the ZIP itself as the runtime.
+2. On **Entitlements (3961735763)**, replace the existing application HTML macro contents with **`html/wcspedia-entitlements.html`** and publish the page. The matching attachments are **`wcspedia-entitlements.js`** and **`wcspedia-entitlementsHTMLPage.js`**. All three are required; the supplied macro enables `nativeAccessSync: true`. Uploading the HTML file as an attachment does not replace the page macro.
+3. Replace the other six interface macros with the matching `html/wcspedia-*.html` files. Replace the eight business-area application macros with **`html/areas/{business-area}.html`**. The configured page-ID tables at the end of this README identify their destinations.
+4. Replace only the WCSpedia helper fragment in the existing **navBar** with **`html/wcspedia-navbar.html`**. Preserve branded navigation and `{include:wcspedia:navBar}`. Do not put an application macro or a separate Sync access macro in navBar.
+5. Keep your live **`entitlements.json`** and existing document data. **`initial-json/` is for first installation only.** Close old WCSpedia tabs and hard-refresh after replacing the files.
+
+## Where to find Sync access
+
+Open **Entitlements (3961735763)**. The **Native access setup** panel is above the access directory/search table. Its **Sync access** button is available to an eligible active entitlement administrator with all four JSON permissions: `entitlements.view`, `entitlements.add`, `entitlements.edit`, and `entitlements.revoke`. Native access to administer the policy host remains required. Running synchronization additionally requires actual native **Space Admin** access.
+
+If the entire panel is missing, check the matching Entitlements macro and both JavaScript attachments above, then reload; an old macro or mixed/cached scripts can omit it. If the panel appears but the button does not, check the signed-in account's effective administration permissions. Do not replace the live policy with starter JSON to make the button appear.
+
+Run **Sync access** once for existing entitlements. Subsequent Entitlements Add/Edit/Revoke saves synchronize automatically. Directly uploading JSON does not trigger synchronization: use the button afterward. Failed or unsupported native operations remain explicitly incomplete and can be retried.
+
+Synchronization manages individual native space grants and Working **viewing** access; it preserves Working **editing**. Authors and reviewers do not need Working-root Edit merely to create or review documents. Working still needs protected viewing for private drafts. No groups or Space Admin grants are created. See `templates/NATIVE-SPACE-SETUP.md` for recovery and live verification. Package and local tests do not establish compatibility or access on the internal server.
+
+## October 26: business-area Explore and simpler approval
+
+Use this section for the current update; earlier dated sections below are release history.
+
+1. Upload all `attachments/` files from **WCSpedia-configured-upload.zip** to **3962195316**, replacing matching filenames. Keep each page logic/HTMLPage pair together.
+2. Replace the seven interface HTML macros with their matching `html/wcspedia-*.html` files. They retain the working inline-settings → logic → renderer sequence. Governance fields, the extra review checklist and the review-date requirement are disabled by default. Job aids still require their assigned reviewer and manager to review/approve the exact revision; stored governance/history is preserved.
+3. On each existing business-area parent, replace its content application macro with the matching **`html/areas/{business-area}.html`**. The configured page-ID table below maps all eight files. These reuse the landing/search JavaScript pair and open Explore scoped to that business area and its descendant topics/pages. Search, filters, pagination and Reset retain the area; WCSpedia Home and Search all return to the global landing/search page. No new Confluence pages are needed.
+4. Replace only the WCSpedia helper fragment in existing **navBar** with `html/wcspedia-navbar.html`. This registers the eight area page IDs for the same early loading overlay. Keep branded navigation and `{include:wcspedia:navBar}`. Never put an area application macro in navBar.
+5. Hard-refresh after uploading. **Do not replace live JSON** with initial files.
+
+### Job aid HTTP 403 on `/rest/api/content/{id}/restriction`
+
+This is a rejected native restriction write. Blogs work because they do not perform this request. An HTML, CSS or entitlement JSON change cannot grant the missing native access.
+
+Use **Sync access** above as the eligible entitlement administrator with native Space Admin. It synchronizes required native grants from the existing JSON roster and Working viewing access. The account creating Job aids and the manager publishing them still need native Edit access to the affected document; the application applies document author/reviewer/manager restrictions automatically. If synchronization reports an unsupported or denied API, the space owner should inspect **Space tools → Permissions** and the returned error. Keep Working **3961735834** view-restricted to the authoring/review team; do not grant everyone Working editing to enable creation.
+
+After correcting access, keep the original editor open and use **Check save / retry** for the same action. Do not create another document or remove Working privacy restrictions. A denied write now explains these steps and retains recoverable state. If the PUT still returns 403 with the required native permissions, give its response message and request to the Confluence administrator to check the instance policy/session; the application does not bypass a denial. Local automated checks cover this failure and retry but cannot establish live server access.
+
+## Entitlement synchronization update
+
+Preserve live JSON. Upload all matching attachments and replace the supplied page macros and the existing navBar fragment. No extra sync macro is needed. Open Entitlements **3961735763** as a full entitlement administrator with native **Space Admin**, then click **Sync access** once. Future Entitlements Add/Edit/Revoke saves synchronize automatically; failed native setup has a separate retry without another JSON save.
+
+Authors/reviewers need Working **viewing**, not Working **editing**. Do not add them to its edit list. Job aid assignments are applied to document restrictions automatically. Native permissions are still enforced. Installed Data Center `/space/{spaceKey}/permissions/user/{userKey}` grant/revoke support is required; unsupported/denied calls remain incomplete, not silently bypassed. See `templates/NATIVE-SPACE-SETUP.md` for exact grants, retained manual/group access, limits and live verification.
+
 ## October 23 latest-document timestamps
 
 Latest cards now show the visible update date and time with a timezone (Europe/Warsaw, matching the existing application date convention). Native latest discovery continues to use Confluence `lastmodified DESC`, with no publication-year cutoff. An article first published in 2025 can appear when updated today; Confluence indexing may take time to reflect the write. Local discovery also uses the published Insight revision timestamp and does not promote private draft edits.
@@ -380,15 +424,15 @@ Space key: `wcspedia`. Context: `/confluence`. Attachment page: `3962195316`.
 
 Insights parent: `3961735728`. Restricted Working parent: `3961735834`.
 
-| Business area | Parent page ID |
-| --- | --- |
-| credit-approval-control | `3961735771` |
-| credit-information-management | `3961735776` |
-| credit-management-reporting | `3961735781` |
-| deal-closing | `3961735791` |
-| documentation-pledging | `3961735795` |
-| emea-credit-admin | `3961735800` |
-| loan-management | `3961735803` |
-| regional-operating-manuals | `3961735808` |
+| Business area | Parent page ID | HTML macro |
+| --- | --- | --- |
+| credit-approval-control | `3961735771` | `html/areas/credit-approval-control.html` |
+| credit-information-management | `3961735776` | `html/areas/credit-information-management.html` |
+| credit-management-reporting | `3961735781` | `html/areas/credit-management-reporting.html` |
+| deal-closing | `3961735791` | `html/areas/deal-closing.html` |
+| documentation-pledging | `3961735795` | `html/areas/documentation-pledging.html` |
+| emea-credit-admin | `3961735800` | `html/areas/emea-credit-admin.html` |
+| loan-management | `3961735803` | `html/areas/loan-management.html` |
+| regional-operating-manuals | `3961735808` | `html/areas/regional-operating-manuals.html` |
 
 These IDs match the supplied configuration. Native access must be checked on your internal instance. `SHA256SUMS.txt` verifies every file in this package.

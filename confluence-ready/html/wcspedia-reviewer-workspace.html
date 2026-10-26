@@ -85,7 +85,8 @@ Order: inline settings → page logic JS → page HTMLPage JS. No config.js file
   window.WCS_CONFIG = Object.assign({}, settings.services, {
     mode: 'confluence', authoringMode: settings.authoringMode, contextPath: context, rootPageId: rootPageId,
     attachmentPageId: attachmentPageId, attachmentFilename: 'wcspedia-published.json',
-    pageRole: 'review', pages: pages, showConnectionStatus: false, mountGlobalTools: false,
+    pageRole: 'review', businessArea: '', governanceEnabled: false,
+    nativeAccessSync: true, pages: pages, showConnectionStatus: false, mountGlobalTools: false,
     brandLogoUrl: attachment('wcspedia-logo.png'),
     nativePublication: { enabled: true, publishedRootPageId: rootPageId, workingRootPageId: settings.workingRootPageId, areaPageIds: settings.areaPageIds, insightsPageId: settings.insightsPageId, insightsTypes: ['Procedure','Knowledge sharing','Blog','Training','Reference','Report','Guide','Playbook','Checklist','Template','FAQ'] },
     search: settings.search, charts: settings.charts,

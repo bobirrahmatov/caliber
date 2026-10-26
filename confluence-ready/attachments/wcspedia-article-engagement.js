@@ -165,6 +165,9 @@
           var parent = body && body.type === 'comment' ? body.container && String(body.container.id) : body && body.type === 'page' && body.ancestors && body.ancestors.length ? String(body.ancestors[body.ancestors.length - 1].id) : null;
           if (!id(parent) || body.type === 'page' && (!body.space || body.space.key !== spaceKey)) fail('Native content must target a verified WCSpedia parent and space.', 'SCOPE');
           await writable(parent, 'native.create-' + body.type, { signal: init.signal }, false);
+        } else if (config.allowSpacePermissionSync === true && method === 'PUT' && relative.startsWith('/rest/api/space/'+encodeURIComponent(spaceKey)+'/permissions/user/') && /^\/rest\/api\/space\/[^/]+\/permissions\/user\/[^/]+\/(grant|revoke)$/.test(relative)) {
+          var grants;try {grants=JSON.parse(init.body);}catch(_){}
+          if(!Array.isArray(grants)||!grants.length||grants.length>5||grants.some(function(g){return !g||Object.keys(g).sort().join(',')!=='operationKey,targetType'||!['space:read','space:restrict','page:create','page:delete','attachment:create'].includes(g.targetType+':'+g.operationKey);}))fail('Only supported WCSpedia native access grants can be synchronized.','SCOPE');
         } else fail('This storage helper does not mutate unrelated Confluence resources.', 'SCOPE');
       }
       return transport(path, init);

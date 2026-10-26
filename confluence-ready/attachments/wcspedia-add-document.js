@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var registry = window.WCSHeaderWidgetModules = window.WCSHeaderWidgetModules || {};
-  if (registry.addDocument && registry.addDocument.version === '6460e0560d33') return;
+  if (registry.addDocument && registry.addDocument.version === '61a11e73adc4') return;
   var scope = { crypto: window.crypto, FormData: window.FormData, Blob: window.Blob, fetch: typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined, location: window.location, DOMParser: window.DOMParser };
   (function (globalThis) {
 /* Bundle isolation: Confluence may expose AMD define(). Keep this dependency
@@ -1205,8 +1205,8 @@
       routingChanges = diff(priorRouting, doc, ['publicationMode','area','reviewerId','approverId']);
     }
 
-    // The trusted service must always opt in for new submissions. The optional
-    // switch permits read/replay of historical fixtures; it is not a client grant.
+    // The active installation chooses the optional governance profile.
+    // Role, exact-revision and native authorization checks remain independent.
     if (options.requireGovernance === true && ['submit', 'complete-review', 'approve'].indexOf(action) >= 0) governedMetadata(version, at);
     if (action === 'approve' && version.governance && version.governance.classification === 'formal-reference') fail('Formal documents must follow their authoritative repository and governance process; ordinary WCSpedia approval cannot publish them.');
 
@@ -1256,11 +1256,13 @@
       if (version.reviewedBy !== doc.reviewerId || version.reviewedRevision !== version.revision || !version.reviewedAt) fail('Approval requires review of this exact content revision.');
       if (options.requireGovernance === true) reviewEvidence(doc, version, version.governanceReview, { now: at }, true);
       var effectiveAt = timestamp(options.effectiveAt, 'Effective date');
-      var nextReviewAt = timestamp(options.nextReviewAt, 'Next review date');
+      // The simplified workflow still records exact-revision review/approval,
+      // but does not invent a governance review target when none was requested.
+      var nextReviewAt = options.reviewScheduleRequired === false && !options.nextReviewAt ? null : timestamp(options.nextReviewAt, 'Next review date');
       if (new Date(effectiveAt).getTime() > new Date(at).getTime()) fail('Future effective dates are not supported. Publish when the document becomes effective.');
       if (new Date(effectiveAt).getTime() < new Date(at).getTime()) fail('A new approval cannot be backdated. Use the approval time as the effective date.');
-      if (new Date(nextReviewAt).getTime() <= new Date(at).getTime()) fail('The next review date must be after approval.');
-      if (version.governance && ['other-nhd', 'other-bod'].indexOf(version.governance.classification) >= 0 && nextReviewAt.slice(0, 10) > governance.nextReviewDate(at, 24)) fail('Choose a business review target within 24 calendar months of approval. This is the configured business best-practice target, not a formal-policy certification.');
+      if (nextReviewAt && new Date(nextReviewAt).getTime() <= new Date(at).getTime()) fail('The next review date must be after approval.');
+      if (nextReviewAt && version.governance && ['other-nhd', 'other-bod'].indexOf(version.governance.classification) >= 0 && nextReviewAt.slice(0, 10) > governance.nextReviewDate(at, 24)) fail('Choose a business review target within 24 calendar months of approval. This is the configured business best-practice target, not a formal-policy certification.');
       version.approvedBy = options.actorId;
       version.approvedAt = at;
       version.effectiveAt = effectiveAt;
@@ -1475,6 +1477,9 @@
           var parent = body && body.type === 'comment' ? body.container && String(body.container.id) : body && body.type === 'page' && body.ancestors && body.ancestors.length ? String(body.ancestors[body.ancestors.length - 1].id) : null;
           if (!id(parent) || body.type === 'page' && (!body.space || body.space.key !== spaceKey)) fail('Native content must target a verified WCSpedia parent and space.', 'SCOPE');
           await writable(parent, 'native.create-' + body.type, { signal: init.signal }, false);
+        } else if (config.allowSpacePermissionSync === true && method === 'PUT' && relative.startsWith('/rest/api/space/'+encodeURIComponent(spaceKey)+'/permissions/user/') && /^\/rest\/api\/space\/[^/]+\/permissions\/user\/[^/]+\/(grant|revoke)$/.test(relative)) {
+          var grants;try {grants=JSON.parse(init.body);}catch(_){}
+          if(!Array.isArray(grants)||!grants.length||grants.length>5||grants.some(function(g){return !g||Object.keys(g).sort().join(',')!=='operationKey,targetType'||!['space:read','space:restrict','page:create','page:delete','attachment:create'].includes(g.targetType+':'+g.operationKey);}))fail('Only supported WCSpedia native access grants can be synchronized.','SCOPE');
         } else fail('This storage helper does not mutate unrelated Confluence resources.', 'SCOPE');
       }
       return transport(path, init);
@@ -2003,6 +2008,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   function canonical(v){if(Array.isArray(v))return v.map(canonical);if(object(v))return Object.keys(v).sort().reduce(function(r,k){if(v[k]!==undefined)r[k]=canonical(v[k]);return r;},{});return v;}
   function create(config,deps){
     config=config||{};deps=deps||{};
+    var governanceEnabled=config.governanceEnabled===true;
     var native=config.nativePublication||{},rootId=numeric(config.rootPageId||config.pageId||native.publishedRootPageId),workingId=numeric(config.workingRootPageId||native.workingRootPageId);
     var areas=Object.assign({},native.areaPageIds||config.areaPageIds||{}),insightsId=numeric(config.insightsPageId||native.insightsPageId),space=config.spaceKey;
     if(typeof space!=='string'||!/^[A-Za-z0-9_~.-]+$/.test(space)||rootId===workingId)fail('Configure the WCSpedia space and distinct working/root pages.','CONFIGURATION');
@@ -2040,10 +2046,19 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         }
         if(!protectedBy)fail('Set Viewing restrictions on the Working page ('+workingId+') for authors, reviewers and managers. Keep the workspace interface pages accessible.','WORKING_ROOT_UNRESTRICTED');
       }catch(error){aborted(signal);if(!reading)throw error;privacyError=error;}
-      // DC Add page permits creating and editing pages. If space.operations is
-      // present it is authoritative; otherwise verified update on Working is used.
-      var canCreate=Array.isArray(results[2].operations)?op(results[2],'create','page'):op(results[1],'update');
-      return {root:results[0],working:results[1],space:results[2],canCreate:canCreate,draftsProtected:!!protectedBy,protectedBy:protectedBy,creationCode:privacyError?(privacyError.code||'INVALID_PERMISSIONS'):'',creationMessage:privacyError?(privacyError.code==='WORKING_ROOT_UNRESTRICTED'?privacyError.message:'Confluence could not verify Working-page viewing restrictions. '+privacyError.message):''};
+      // Parent editing is not a creation/review capability. Where DC omits
+      // space.operations, query the signed-in user's native space permissions.
+      var canCreate=false,permissionError=null;
+      if(Array.isArray(results[2].operations))canCreate=op(results[2],'create','page');
+      else try {
+        var currentUser=await storage.user(options(signal));
+        if(!currentUser.userKey)fail('Confluence did not return a user key for the native Add page check.','INVALID_PERMISSIONS');
+        var grants=await request('/rest/api/space/'+encodeURIComponent(space)+'/permissions/user/'+encodeURIComponent(currentUser.userKey),null,undefined,signal);
+        if(!Array.isArray(grants))fail('Confluence did not return native space permissions.','INVALID_PERMISSIONS');
+        canCreate=grants.some(function(g){return (!g.spaceKey||g.spaceKey===space)&&g.operation&&g.operation.targetType==='page'&&g.operation.operationKey==='create';});
+      }catch(error){aborted(signal);permissionError=error;}
+      if(!privacyError&&permissionError)privacyError={code:'CREATE_PERMISSION_UNVERIFIED',message:'Confluence could not verify native Add page permission. An administrator should run Sync access in Entitlements. Working-root Edit is not required. '+permissionError.message};
+      return {root:results[0],working:results[1],space:results[2],canCreate:canCreate,draftsProtected:!!protectedBy,protectedBy:protectedBy,creationCode:privacyError?(privacyError.code||'INVALID_PERMISSIONS'):'',creationMessage:privacyError?(['WORKING_ROOT_UNRESTRICTED','CREATE_PERMISSION_UNVERIFIED'].includes(privacyError.code)?privacyError.message:'Confluence could not verify Working-page viewing restrictions. '+privacyError.message):''};
     }
     function directory(catalog,policy,user,previousPeople){
       var bySOEID=new Map(),byId=new Map();
@@ -2199,7 +2214,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if(error.name==='AbortError')throw error;
         // Preserve status/code and UNKNOWN_COMMIT semantics for exact-request
         // recovery. A denial must not become a retry against a looser endpoint.
-        var guidance=error.status===404?'The restriction endpoint or page is unavailable to this account; a successful page GET does not verify this endpoint.':error.status===401?'Sign in again before checking this same save.':error.status===403||error.code==='FORBIDDEN'?'Ask the space owner to check native Edit and Restrict permissions; JSON entitlements do not grant these.':error.status===400?'Confluence rejected the restriction request; use the server detail below to check the assigned native usernames and permissions.':'The restriction step was not confirmed.';
+        var guidance=error.status===404?'The restriction endpoint or page is unavailable to this account; a successful page GET does not verify this endpoint.':error.status===401?'Sign in again before checking this same save.':error.status===403||error.code==='FORBIDDEN'?'The signed-in account cannot change native page restrictions. A space administrator should run Sync access in Entitlements to apply the required native space grants, then verify native Edit access on this document. Working-root Edit is not required. Blogs skip restriction writes, so a successful Blog save does not test this permission. Keep the Working parent’s viewing restrictions. After access is corrected, use Check save / retry the same action; do not create another document. Saving JSON alone does not grant native permission; synchronization must succeed.':error.status===400?'Confluence rejected the restriction request; use the server detail below to check the assigned native usernames and permissions.':'The restriction step was not confirmed.';
         error.message='Job aid page '+p.id+': could not '+stage+'. '+guidance+' Required individual editors: '+subjectsForWrite.map(function(u){return u.username;}).join(', ')+'. Working drafts need matching View and Edit access; a first publication must retain space-reader visibility. '+error.message;
         if([400,403,404,405].includes(error.status)||['FORBIDDEN','UNKNOWN_COMMIT'].includes(error.code))error.recoverable=true;
         throw error;
@@ -2336,7 +2351,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if(!ctx.bounds.canCreate||!E.hasGrant(ctx.policy,who,'content.create','*'))fail('Your account needs Add page permission and the WCSpedia creation grant.','FORBIDDEN');
         if(Content.isInsightType(command.fields.type)&&!Content.isDirectPublication(command.fields))fail('Publish non-Job-aid content directly to Insights.','INVALID_MAPPING');
         if((!areas[command.fields.area]&&!(Content.isDirectPublication(command.fields)))||!TYPES.includes(command.fields.type))fail('Choose a configured business area and content type.','INVALID_MAPPING');
-        doc=W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:new Date().toISOString(),requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,create:true}});
+        doc=W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:new Date().toISOString(),requireGovernance:governanceEnabled,reviewScheduleRequired:governanceEnabled,permissionContext:{actorId:actor.id,documentId:documentKey,create:true}});
         statePreflight(doc,ctx.dir.people);await Renderer.collectMedia(doc,W.currentVersion(doc),{media:{}});
         if(!Content.isDirectPublication(doc))await assignments(doc,ctx.dir.people,signal);
         p=await createPage('WCSpedia working '+documentKey,documentKey,'working',requestId,signal);state=await readState(p,signal);
@@ -2363,7 +2378,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         var at=new Date().toISOString();
         var relevantIds=new Set([doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId,actor.id,command.ownerId].concat((doc.audit||[]).map(function(e){return e.actorId;})));
         var snapshotPeople=ctx.dir.people.filter(function(person){return relevantIds.has(person.id);});
-        if(!creating)statePreflight(W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:at,effectiveAt:at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')}}),snapshotPeople);
+        if(!creating)statePreflight(W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:at,effectiveAt:at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,requireGovernance:governanceEnabled,reviewScheduleRequired:governanceEnabled,permissionContext:{actorId:actor.id,documentId:documentKey,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')}}),snapshotPeople);
         journal=await storage.putProperty(p.id,JOURNAL,{schemaVersion:1,requestId:requestId,fingerprint:fingerprint,actorSOEID:who.soeid,documentKey:documentKey,action:command.action,at:at,people:snapshotPeople,expectedNativeVersion:p.version.number,priorPublishedParentId:publicationParent(doc),priorStateRevision:state.state.revision,priorAttachmentVersion:state.state.attachmentVersion||0,priorFingerprint:state.state.fingerprint,stage:'reserved',done:false},journal?journal.version.number:null,options(signal));
       }
       async function checkpoint(changes){journal=await storage.putProperty(p.id,JOURNAL,Object.assign({},journal.value,changes),journal.version.number,options(signal));}
@@ -2372,7 +2387,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(state.state.revision!==j.priorStateRevision&&!(state.state.pointer&&state.state.pointer.pending&&state.state.pointer.pending.requestId===requestId&&state.state.pointer.pending.expectedRevision===j.priorStateRevision))fail('The document state changed while this action was pending.','CONFLICT');
       if(['request-changes','complete-review','approve'].includes(command.action)&&actor.role==='Reader')fail('Your active review role is no longer available.','FORBIDDEN');
       var permissionContext={actorId:actor.id,documentId:documentKey,create:creating,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')};
-      doc=creating?W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,permissionContext:permissionContext}):W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,effectiveAt:j.at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,permissionContext:permissionContext,requireGovernance:true});
+      doc=creating?W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,permissionContext:permissionContext}):W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,effectiveAt:j.at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,permissionContext:permissionContext,requireGovernance:governanceEnabled,reviewScheduleRequired:governanceEnabled});
       if(!op(p,'update'))fail('Confluence no longer permits this working-page action.','FORBIDDEN');
       // Insights uses ordinary native create/edit access, like the earlier blog
       // publisher. Only the approval workflow provisions assigned editors.
@@ -2712,9 +2727,24 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         rootPageId: pageId, extraRootPageIds: [nativePublication.workingRootPageId].filter(Boolean),
         allowedPageIds: [attachmentPageId, entitlementPageId],
         storagePageIds: [attachmentPageId, entitlementPageId],
-        protectedPageIds: [pageId, attachmentPageId, entitlementPageId]
+        protectedPageIds: [pageId, attachmentPageId, entitlementPageId],
+        allowSpacePermissionSync: config.nativeAccessSync === true
       }, { fetch: fetcher, crypto: dependencies.crypto || root.crypto, origin: origin });
       return spaceStore;
+    }
+    var spaceAccessSync;
+    function nativeAccessSynchronizer() {
+      if (!nativeSession || config.nativeAccessSync !== true) fail('Install the current Entitlements macro to enable native access synchronization.','CONFIGURATION');
+      if (!spaceAccessSync) spaceAccessSync = nativeModule('WCSSpaceAccessSync','space-access-sync.js').create(Object.assign({},config,{spaceKey:config.spaceKey||verifiedSearchSpace,entitlementsPageId:entitlementPageId}), {
+        storage:nativeStorage(),entitlements:entitlementHelper(),crypto:dependencies.crypto||root.crypto,
+        uuid:function(){return (dependencies.crypto||root.crypto).randomUUID();},
+        loadPolicy:async function(){return (await readEntitlementAttachment()).policy;}
+      });
+      return spaceAccessSync;
+    }
+    async function syncEntitlementAccess() {
+      await nativeAccessSynchronizer().sync();
+      return last ? load() : loadAccess();
     }
     function nativeWorkflow() {
       if (!spaceWorkflow) spaceWorkflow = nativeModule('WCSSpaceWorkflow', 'space-workflow.js').create(config, {
@@ -3049,6 +3079,10 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if (nativeSession) { access.entitlementPointerRevision = attachment.pointerRevision; access.entitlementFingerprint = attachment.fingerprint; }
         access.nativePermissions.root = rootPage.operations;
         access.nativePermissions.entitlements = policyPage.operations;
+        if(nativeSession && config.nativeAccessSync===true && config.pageRole==='entitlements' && E.hasGrant(access.entitlementPolicy,identity,'entitlements.view','*')) {
+          try {access.entitlementSync=await nativeAccessSynchronizer().status(access.entitlementPolicy);}
+          catch(error){access.entitlementSync={status:'incomplete',message:'Native access status could not be read. '+error.message};}
+        }
         if (nativeSession && E.hasGrant(access.entitlementPolicy, identity, 'content.create', '*')) {
           var nativeCapability;
           try { nativeCapability = await nativeWorkflow().capabilities({ user: user, policy: access.entitlementPolicy, access: access, signal: signal }); }
@@ -3423,27 +3457,27 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if (!who || JSON.stringify(who) !== JSON.stringify(priorIdentity)) fail('Your Confluence account changed. Reload before saving.', 'IDENTITY_MAPPING');
       // Refresh the policy and actual policy-host permissions for every save.
       var fresh = await resolveAccess(user, {}, null);
-      var fingerprint = JSON.stringify(command), crypto = dependencies.crypto || root.crypto;
+      var commandFingerprint = JSON.stringify(command), crypto = dependencies.crypto || root.crypto;
       var pending = pendingEntitlementCommand;
       if (!pending && priorFingerprint !== undefined && priorFingerprint !== fresh.entitlementFingerprint) {
         accessLast = priorAccess;
         fail('The entitlement file changed while this form was open. Reload and review the latest grants before saving.', 'CONFLICT');
       }
-      if (pending && pending.fingerprint === fingerprint && pending.expectedPolicy) {
+      if (pending && pending.commandFingerprint === commandFingerprint && pending.expectedPolicy) {
         var confirmedEvent = fresh.entitlementPolicy.audit.find(function (event) { return event.revision === pending.expectedPolicy.revision; });
         var expectedEvent = pending.expectedPolicy.audit[pending.expectedPolicy.audit.length - 1];
         if (confirmedEvent && JSON.stringify(confirmedEvent) === JSON.stringify(expectedEvent)) {
           pendingEntitlementCommand = null;
-          return last ? load() : clone(fresh);
+          return finishEntitlementSync(last ? await load() : clone(fresh));
         }
       }
-      if (!pending || pending.fingerprint !== fingerprint || !pending.expectedPolicy) {
+      if (!pending || pending.commandFingerprint !== commandFingerprint || !pending.expectedPolicy) {
         if (!crypto || typeof crypto.randomUUID !== 'function') fail('A secure request identifier requires HTTPS.', 'CONFIGURATION');
         var at = Date.now(), audit = fresh.entitlementPolicy.audit;
         if (audit.length) at = Math.max(at, Date.parse(audit[audit.length - 1].at));
         var expected = E.applyCommand(fresh.entitlementPolicy, command, { identity: who, native: fresh.nativePermissions, now: new Date(at).toISOString() });
         if (utf8Size(JSON.stringify(expected)) > 2 * 1024 * 1024) fail('The policy would exceed its 2 MB limit. Export and archive its history before continuing.', 'INVALID_ENTITLEMENTS');
-        pending = pendingEntitlementCommand = { fingerprint: fingerprint, requestId: crypto.randomUUID(), expectedPolicy: expected,
+        pending = pendingEntitlementCommand = { commandFingerprint: commandFingerprint, requestId: crypto.randomUUID(), expectedPolicy: expected,
           revision: fresh.entitlementPointerRevision, attachmentVersion: fresh.entitlementAttachmentVersion, fingerprint:fresh.entitlementFingerprint };
       } else {
         E.applyCommand(fresh.entitlementPolicy, command, { identity: who, native: fresh.nativePermissions, now: pending.expectedPolicy.audit[pending.expectedPolicy.audit.length - 1].at });
@@ -3466,6 +3500,20 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var event = refreshed.entitlementPolicy.audit.find(function (item) { return item.revision === pending.expectedPolicy.revision; });
       if (!event || JSON.stringify(event) !== JSON.stringify(pending.expectedPolicy.audit[pending.expectedPolicy.audit.length - 1])) fail('The saved entitlement change could not be verified. Reload before continuing.', 'REFRESH_REQUIRED');
       pendingEntitlementCommand = null;
+      return finishEntitlementSync(refreshed);
+    }
+    async function finishEntitlementSync(refreshed) {
+      if(config.nativeAccessSync!==true)return refreshed;
+      try {
+        var synchronized=await nativeAccessSynchronizer().sync();
+        // The sync can change native creation access and Working privacy.
+        // Re-read capabilities instead of returning the pre-sync disabled state.
+        try {refreshed=last?await load():await loadAccess();}
+        catch(error){synchronized={status:'attention',message:'Native access was synchronized, but the page could not refresh its permissions. Reload this page. '+error.message};}
+        refreshed.entitlementSync=synchronized;
+      }
+      catch(error){refreshed.entitlementSync={status:'incomplete',message:error.message};}
+      accessLast=clone(refreshed);if(last)last=clone(refreshed);
       return refreshed;
     }
     async function submitEntitlementCommand(command) {
@@ -4202,7 +4250,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       output.complete = true; emit();
       return output;
     }
-    return Object.freeze({ load: load, loadAccess: loadAccess, inspectEntitlementRecovery: inspectEntitlementRecovery, reconcileEntitlementAttachment: reconcileEntitlementAttachment, loadMetrics: loadMetrics, recordView: recordView, submitAction: submitAction, deleteDocument: deleteDocument, submitEntitlementCommand: submitEntitlementCommand, saveAttachment: saveAttachment, searchPages: searchPages, loadLanding: loadLanding, loadPublishedArticle: loadPublishedArticle, invalidateSearch: clearSearchReads, info: function () { return { mode: mode, authoringMode: nativeSession ? 'confluence-session' : 'service', rootPageId: pageId, searchSpaceKey: verifiedSearchSpace, attachmentPageId: attachmentPageId, attachmentFilename: filename, workflowConfigured: nativeSession || !!workflowURL, workspaceConfigured: nativeSession || !!workspaceURL, entitlementsConfigured: policyConfigured, entitlementsPageId: entitlementPageId, entitlementsSource: entitlementSource, entitlementsFilename: entitlementFilename, entitlementServiceConfigured: nativeSession || !!entitlementURL, metricsConfigured: mode === 'confluence' && (nativeSession || !!metricsURL), directAttachmentWrites: config.allowAttachmentWrites === true, nativePublicationEnabled: publicationEnabled }; } });
+    return Object.freeze({ load: load, loadAccess: loadAccess, inspectEntitlementRecovery: inspectEntitlementRecovery, reconcileEntitlementAttachment: reconcileEntitlementAttachment, loadMetrics: loadMetrics, recordView: recordView, submitAction: submitAction, deleteDocument: deleteDocument, submitEntitlementCommand: submitEntitlementCommand, syncEntitlementAccess: syncEntitlementAccess, saveAttachment: saveAttachment, searchPages: searchPages, loadLanding: loadLanding, loadPublishedArticle: loadPublishedArticle, invalidateSearch: clearSearchReads, info: function () { return { mode: mode, authoringMode: nativeSession ? 'confluence-session' : 'service', rootPageId: pageId, searchSpaceKey: verifiedSearchSpace, attachmentPageId: attachmentPageId, attachmentFilename: filename, workflowConfigured: nativeSession || !!workflowURL, workspaceConfigured: nativeSession || !!workspaceURL, entitlementsConfigured: policyConfigured, entitlementsPageId: entitlementPageId, entitlementsSource: entitlementSource, entitlementsFilename: entitlementFilename, entitlementServiceConfigured: nativeSession || !!entitlementURL, metricsConfigured: mode === 'confluence' && (nativeSession || !!metricsURL), directAttachmentWrites: config.allowAttachmentWrites === true, nativePublicationEnabled: publicationEnabled }; } });
   }
   return Object.freeze({ create: create, validateData: validateData, addCategory: addCategory, facetLabel: facetLabel });
 });
@@ -4567,5 +4615,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 });
 
   })(scope);
-  registry.addDocument = { version: '6460e0560d33', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
+  registry.addDocument = { version: '61a11e73adc4', Confluence: scope.WCSConfluence, AddDocument: scope.WCSAddDocument, Content: scope.WCSEditorContent };
 })();

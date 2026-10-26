@@ -199,6 +199,21 @@
   function resolve(href,config,currentUrl){
     if(typeof href==='string'&&/^#\/search(?:\?|$)/.test(href))href='#/?focus=search';
     const role=roleFor(href);
+    // Area hosts reuse the landing pair, but each native parent opens its own
+    // Explore scope. The actual home link must still leave that area host.
+    if(role==='home'&&config.mode==='confluence'){
+      const [path,query='']=href.slice(1).split('?');
+      let area=new URLSearchParams(query).get('area');
+      if(path.startsWith('/topic/'))try{area=decodeURIComponent(path.slice(7));}catch(_){area=null;}
+      const mappings=config.nativePublication?.areaPageIds||{},id=Object.prototype.hasOwnProperty.call(mappings,area)?String(mappings[area]):'';
+      if(/^[1-9]\d{0,19}$/.test(id)){
+        if(config.businessArea===area)return href;
+        try{const target=new URL((config.contextPath||'/confluence')+'/pages/viewpage.action',currentUrl);target.searchParams.set('pageId',id);target.hash=href.slice(1);return target.href;}catch(_){}
+      }
+      if(config.businessArea&&(path==='/'||path==='/results')&&!area&&config.pages?.home){
+        try{const current=new URL(currentUrl),target=new URL(config.pages.home,current);if(target.origin===current.origin){target.hash=isDefaultRoute(href,'home')?'':href.slice(1);return target.href;}}catch(_){}
+      }
+    }
     if(!role||!config.pages||role===(config.pageRole||'home')||!config.pages[role])return href;
     try{
       const current=new URL(currentUrl),target=new URL(config.pages[role],current);
@@ -212,6 +227,7 @@
   function initialHash(config){
     if(config.pageRole==='faq')return '#/faq';
     if(config.documentId)return '#/document/'+encodeURIComponent(config.documentId);
+    if(config.pageRole==='home'&&typeof config.businessArea==='string'&&/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(config.businessArea))return '#/topic/'+encodeURIComponent(config.businessArea);
     if(config.initialView==='insights'||config.pageRole==='insights')return '#/insights';
     if(config.initialView==='saved'||config.pageRole==='saved')return '#/saved';
     if(config.initialView==='mine'||config.pageRole==='mine')return '#/results?view=mine';
@@ -272,5 +288,5 @@
   global.WCSFAQ={mount};
 })(window);
 
-  modules['faq'] = { version: '6460e0560d33' };
+  modules['faq'] = { version: '61a11e73adc4' };
 })();

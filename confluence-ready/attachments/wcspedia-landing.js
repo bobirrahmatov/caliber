@@ -979,15 +979,23 @@
   function dialog(options) {
     options = options || {};
     if (activePopover) activePopover.close('replace');
-    const before = doc.activeElement, id = uid(), backdrop = doc.createElement('div');
-    backdrop.className = 'wcs-ui-backdrop';
+    const isDrawer = options.placement === 'right';
+    const before = doc.activeElement, id = uid(), backdrop = doc.createElement(isDrawer ? 'dialog' : 'div');
+    backdrop.className = 'wcs-ui-backdrop' + (isDrawer ? ' wcs-ui-drawer-backdrop' : '');
     const panel = doc.createElement('section');
-    panel.className = 'wcs-ui-dialog' + (options.size === 'wide' ? ' is-wide' : '');
+    panel.className = 'wcs-ui-dialog' + (options.size === 'wide' ? ' is-wide' : '') + (isDrawer ? ' wcs-ui-drawer' : '');
     panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-labelledby', id); panel.tabIndex = -1;
     panel.innerHTML = '<div class="wcs-ui-dialog-heading"><div><h2 id="' + id + '">' + escape(options.title || 'WCSpedia') + '</h2>' + (options.description ? '<p>' + escape(options.description) + '</p>' : '') + '</div><button type="button" class="wcs-ui-close" aria-label="' + escape(options.closeLabel || 'Close dialog') + '">' + icon('close') + '</button></div><div class="wcs-ui-dialog-body"></div>';
     const body = panel.querySelector('.wcs-ui-dialog-body'); put(body, options.body);
     backdrop.append(panel); layer().append(backdrop);
     let closed = false, busy = false, initiator = null, busyButton = null, disabledButtons = [];
+    const previousOverflow = doc.documentElement.style.overflow;
+    if (isDrawer) {
+      backdrop.setAttribute('aria-label', options.title || 'Filters');
+      backdrop.showModal(); // Browser top layer: above native Confluence headers and stacking contexts.
+      doc.documentElement.style.overflow = 'hidden';
+      backdrop.addEventListener('cancel', event => { event.preventDefault(); close('escape'); });
+    }
     // Capture the actual submitter (including Enter-key submits) before the
     // form handler starts its asynchronous command.
     panel.addEventListener('submit', event => { if (!busy) initiator = event.submitter || event.target.querySelector('button[type="submit"]'); }, true);
@@ -1012,7 +1020,9 @@
       if (options.onClose && options.onClose(reason, handle) === false) return false;
       closed = true;
       if (activePopover && panel.contains(activePopover.element)) activePopover.close('owner-close');
-      destroyFields(panel); backdrop.remove();
+      destroyFields(panel);
+      if (isDrawer) { backdrop.close(); doc.documentElement.style.overflow = previousOverflow; }
+      backdrop.remove();
       const index = dialogs.indexOf(handle); if (index >= 0) dialogs.splice(index, 1);
       syncInert();
       if (options.restoreFocus !== false) focusElement(before);
@@ -1077,7 +1087,28 @@
     return Array.from(field.labels || []).map(label => (label.querySelector('span') || label).textContent.trim()).join(' ') || field.name || 'Choose an option';
   }
   function announceValue(field) { field.dispatchEvent(new Event('input', {bubbles:true})); field.dispatchEvent(new Event('change', {bubbles:true})); }
+  // Opt-in searchable dropdown; existing selects retain their original behavior.
+  function searchableSelectControl(field) {
+    const originalHidden=field.hidden,id=uid(),wrapper=doc.createElement('span'),trigger=doc.createElement('button');
+    wrapper.className='wcs-ui-select';trigger.type='button';trigger.className='wcs-ui-select-trigger';trigger.setAttribute('role','combobox');trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-expanded','false');trigger.setAttribute('aria-label',nameFor(field));
+    trigger.innerHTML='<span class="wcs-ui-select-value"></span>'+icon('down');field.after(wrapper);wrapper.append(trigger);field.hidden=true;field.dataset.wcsUi='select';
+    let popup=null,active=0;const abort=new AbortController(),signal=abort.signal;
+    function sync(){trigger.disabled=field.disabled;trigger.querySelector('span').textContent=field.selectedOptions[0]?.textContent||'Search and select';if(popup&&field.disabled)popup.close('disabled');}
+    function open(){if(popup||field.disabled)return;active=0;
+      popup=popover({anchor:trigger,role:'dialog',label:nameFor(field),matchWidth:true,className:'wcs-searchable-select',body:'<input type="search" role="combobox" aria-label="Search relationships" aria-autocomplete="list" aria-expanded="true" aria-controls="'+id+'-options" placeholder="Search ID or name…"><div id="'+id+'-options" role="listbox" aria-label="Matching relationships"></div><p role="status"></p>',onClose(){popup=null;trigger.setAttribute('aria-expanded','false');}});
+      trigger.setAttribute('aria-expanded','true');trigger.setAttribute('aria-controls',popup.element.id);
+      const input=popup.element.querySelector('input'),list=popup.element.querySelector('[role=listbox]'),status=popup.element.querySelector('[role=status]');let found=[];
+      const choose=index=>{const option=found[index];if(!option)return;field.value=option.value;sync();popup.close('select');announceValue(field);};
+      function paint(){const query=input.value.trim().toLocaleLowerCase();found=Array.from(field.options).filter(o=>!o.disabled&&(!query||o.textContent.toLocaleLowerCase().includes(query)));active=Math.min(active,Math.max(0,found.length-1));list.innerHTML=found.map((o,i)=>'<div role="option" id="'+id+'-result-'+i+'" data-result="'+i+'" aria-selected="'+(o.value===field.value)+'" class="wcs-ui-option'+(i===active?' is-active':'')+'"><span>'+escape(o.textContent)+'</span>'+(o.value===field.value?icon('check'):'')+'</div>').join('');status.textContent=found.length?found.length+' matching '+(found.length===1?'option':'options'):'No matching relationships. Try another ID or name.';if(found.length)input.setAttribute('aria-activedescendant',id+'-result-'+active);else input.removeAttribute('aria-activedescendant');}
+      input.oninput=()=>{active=0;paint();};input.onkeydown=e=>{if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();active=e.key==='Home'?0:e.key==='End'?found.length-1:Math.max(0,Math.min(found.length-1,active+(e.key==='ArrowDown'?1:-1)));paint();list.querySelector('.is-active')?.scrollIntoView({block:'nearest'});}else if(e.key==='Enter'){e.preventDefault();choose(active);}};
+      list.onpointerdown=e=>e.preventDefault();list.onclick=e=>{const item=e.target.closest('[data-result]');if(item)choose(Number(item.dataset.result));};paint();focusElement(input);
+    }
+    trigger.addEventListener('click',()=>popup?popup.close('toggle'):open(),{signal});trigger.addEventListener('keydown',e=>{if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();open();}},{signal});field.addEventListener('change',sync,{signal});
+    const observer=new MutationObserver(sync);observer.observe(field,{attributes:true,childList:true,subtree:true,characterData:true});
+    enhanced.set(field,{field,wrapper,sync,destroy(){popup?.close('destroy');observer.disconnect();abort.abort();wrapper.remove();field.hidden=originalHidden;delete field.dataset.wcsUi;}});sync();
+  }
   function selectControl(field) {
+    if(field.hasAttribute('data-searchable'))return searchableSelectControl(field);
     if (field.multiple || Number(field.size) > 1) return;
     const originalHidden = field.hidden, id = uid(), wrapper = doc.createElement('span'), trigger = doc.createElement('button');
     wrapper.className = 'wcs-ui-select'; trigger.type = 'button'; trigger.className = 'wcs-ui-select-trigger'; trigger.id = id;
@@ -3205,8 +3236,8 @@
       routingChanges = diff(priorRouting, doc, ['publicationMode','area','reviewerId','approverId']);
     }
 
-    // The trusted service must always opt in for new submissions. The optional
-    // switch permits read/replay of historical fixtures; it is not a client grant.
+    // The active installation chooses the optional governance profile.
+    // Role, exact-revision and native authorization checks remain independent.
     if (options.requireGovernance === true && ['submit', 'complete-review', 'approve'].indexOf(action) >= 0) governedMetadata(version, at);
     if (action === 'approve' && version.governance && version.governance.classification === 'formal-reference') fail('Formal documents must follow their authoritative repository and governance process; ordinary WCSpedia approval cannot publish them.');
 
@@ -3256,11 +3287,13 @@
       if (version.reviewedBy !== doc.reviewerId || version.reviewedRevision !== version.revision || !version.reviewedAt) fail('Approval requires review of this exact content revision.');
       if (options.requireGovernance === true) reviewEvidence(doc, version, version.governanceReview, { now: at }, true);
       var effectiveAt = timestamp(options.effectiveAt, 'Effective date');
-      var nextReviewAt = timestamp(options.nextReviewAt, 'Next review date');
+      // The simplified workflow still records exact-revision review/approval,
+      // but does not invent a governance review target when none was requested.
+      var nextReviewAt = options.reviewScheduleRequired === false && !options.nextReviewAt ? null : timestamp(options.nextReviewAt, 'Next review date');
       if (new Date(effectiveAt).getTime() > new Date(at).getTime()) fail('Future effective dates are not supported. Publish when the document becomes effective.');
       if (new Date(effectiveAt).getTime() < new Date(at).getTime()) fail('A new approval cannot be backdated. Use the approval time as the effective date.');
-      if (new Date(nextReviewAt).getTime() <= new Date(at).getTime()) fail('The next review date must be after approval.');
-      if (version.governance && ['other-nhd', 'other-bod'].indexOf(version.governance.classification) >= 0 && nextReviewAt.slice(0, 10) > governance.nextReviewDate(at, 24)) fail('Choose a business review target within 24 calendar months of approval. This is the configured business best-practice target, not a formal-policy certification.');
+      if (nextReviewAt && new Date(nextReviewAt).getTime() <= new Date(at).getTime()) fail('The next review date must be after approval.');
+      if (nextReviewAt && version.governance && ['other-nhd', 'other-bod'].indexOf(version.governance.classification) >= 0 && nextReviewAt.slice(0, 10) > governance.nextReviewDate(at, 24)) fail('Choose a business review target within 24 calendar months of approval. This is the configured business best-practice target, not a formal-policy certification.');
       version.approvedBy = options.actorId;
       version.approvedAt = at;
       version.effectiveAt = effectiveAt;
@@ -3608,6 +3641,9 @@
           var parent = body && body.type === 'comment' ? body.container && String(body.container.id) : body && body.type === 'page' && body.ancestors && body.ancestors.length ? String(body.ancestors[body.ancestors.length - 1].id) : null;
           if (!id(parent) || body.type === 'page' && (!body.space || body.space.key !== spaceKey)) fail('Native content must target a verified WCSpedia parent and space.', 'SCOPE');
           await writable(parent, 'native.create-' + body.type, { signal: init.signal }, false);
+        } else if (config.allowSpacePermissionSync === true && method === 'PUT' && relative.startsWith('/rest/api/space/'+encodeURIComponent(spaceKey)+'/permissions/user/') && /^\/rest\/api\/space\/[^/]+\/permissions\/user\/[^/]+\/(grant|revoke)$/.test(relative)) {
+          var grants;try {grants=JSON.parse(init.body);}catch(_){}
+          if(!Array.isArray(grants)||!grants.length||grants.length>5||grants.some(function(g){return !g||Object.keys(g).sort().join(',')!=='operationKey,targetType'||!['space:read','space:restrict','page:create','page:delete','attachment:create'].includes(g.targetType+':'+g.operationKey);}))fail('Only supported WCSpedia native access grants can be synchronized.','SCOPE');
         } else fail('This storage helper does not mutate unrelated Confluence resources.', 'SCOPE');
       }
       return transport(path, init);
@@ -3810,6 +3846,138 @@
     return Object.freeze({ request: request, page: page, user: user, property: property, putProperty: putProperty, readJSON: readJSON, writeJSON: writeJSON, inspectJSON:inspectJSON, reconcileJSON:reconcileJSON, maxBytes: MAX_BYTES });
   }
   return Object.freeze({ create: create, MAX_BYTES: MAX_BYTES, MAX_PROPERTY_BYTES: MAX_PROPERTY_BYTES });
+});
+
+;
+
+/* Source: space-access-sync.js */
+/* Entitlements -> native access, executed as the signed-in space administrator.
+ * Cooperating runs use a versioned property lease; native restrictions and JSON
+ * are not one transaction. Only grants recorded as app-owned are revoked.
+ * DC reference: /server/confluence/rest/v9225/api-group-space-permissions/ */
+(function(root,factory){const api=factory(root);if(typeof module==='object'&&module.exports)module.exports=api;else root.WCSSpaceAccessSync=api;})(typeof globalThis!=='undefined'?globalThis:this,function(root){
+'use strict';
+const KEY='wcspedia.access-sync.v1',MAX_USERS=120;
+const ALLOWED=['space:read','space:restrict','page:create','page:delete','attachment:create'];
+const copy=v=>JSON.parse(JSON.stringify(v));
+function fail(message,code='ACCESS_SYNC_INCOMPLETE'){throw Object.assign(new Error(message),{code});}
+function norm(s){return typeof s==='string'?s.trim().toUpperCase():'';}
+function canonical(v){return Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;}
+function equal(a,b){return JSON.stringify(canonical(a))===JSON.stringify(canonical(b));}
+function operation(p){const o=p.operation||p;return o.targetType+':'+(o.operationKey||o.operation);}
+function roster(policy){
+ const map=new Map();
+ for(const r of policy.records){if(!r.active)continue;const caps=r.permissions;
+ const worker=caps.some(c=>['content.create','content.edit','content.delete'].includes(c));
+ const manager=['entitlements.view','entitlements.add','entitlements.edit','entitlements.revoke'].every(c=>policy.records.some(a=>a.active&&a.soeid===r.soeid&&a.scope==='*'&&a.permissions.includes(c)));
+ if(!worker&&!manager)continue;
+ const value=map.get(r.soeid)||new Set(['space:read','page:create','attachment:create','space:restrict']);
+ if(caps.includes('content.delete'))value.add('page:delete');map.set(r.soeid,value);
+ }
+ return [...map].map(([soeid,ops])=>({soeid,ops:[...ops].sort()})).sort((a,b)=>a.soeid.localeCompare(b.soeid));
+}
+function create(config,deps){
+ const storage=deps.storage,E=deps.entitlements,space=config.spaceKey,working=String(config.nativePublication?.workingRootPageId||config.workingRootPageId||''),host=String(config.entitlementsPageId||config.attachmentPageId||'');
+ if(!/^[A-Za-z0-9_~.-]+$/.test(space)||!/^\d+$/.test(working)||!/^\d+$/.test(host)||working===host)fail('Configure distinct Working and entitlement pages.','CONFIGURATION');
+ const now=deps.now||Date.now,uuid=deps.uuid||(()=>root.crypto.randomUUID());
+ const req=(path,method='GET',body)=>storage.request(path,{method,headers:body?{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}:undefined,body:body?JSON.stringify(body):undefined});
+ async function policy(){const r=await deps.loadPolicy();return E.validatePolicy(r.data||r);}
+ async function digest(p){const bytes=new TextEncoder().encode(JSON.stringify(canonical(p)));const crypto=deps.crypto||root.crypto;return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');}
+ async function permissionList(key){const result=await req('/rest/api/space/'+encodeURIComponent(space)+'/permissions/user/'+encodeURIComponent(key));if(!Array.isArray(result)||result.some(p=>!p||!p.operation||typeof p.operation.targetType!=='string'||typeof p.operation.operationKey!=='string'||p.spaceKey&&p.spaceKey!==space))fail('Confluence did not return verifiable space permissions.');return result.map(operation);}
+ async function restrictions(id,op){const r=await req('/rest/api/content/'+id+'/restriction/byOperation/'+op+'?expand=restrictions.user,restrictions.group&limit=200');
+ if(r?.operation!==op||!Array.isArray(r.restrictions?.user?.results)||!Array.isArray(r.restrictions?.group?.results)||[r.restrictions.user,r.restrictions.group].some(v=>v._links?.next||v.size>v.results.length))fail('The native restriction list is incomplete.');
+ const users=r.restrictions.user.results.map(u=>{if(!u.username)fail('A restriction subject has no native username.');return {type:'known',username:u.username};});
+ const groups=r.restrictions.group.results.map(g=>{if(!g.name)fail('A restriction group has no name.');return {type:'group',name:g.name};});users.sort((a,b)=>norm(a.username).localeCompare(norm(b.username)));groups.sort((a,b)=>a.name.localeCompare(b.name));return {user:users,group:groups};}
+ async function status(p){
+  const saved=await storage.property(host,KEY);
+  if(!saved)return {status:'not-configured',message:'Sync existing access once. Future entitlement saves sync automatically.'};
+  const v=saved.value,current=v.policyFingerprint===await digest(E.validatePolicy(p));
+  const running=v.status==='running'&&v.lease?.until>now();
+  return {status:current&&['complete','attention'].includes(v.status)?v.status:running?'running':'incomplete',message:!current?'Entitlements changed. Synchronize native access for the current roster.':v.status==='running'&&!running?'The previous synchronization stopped. Retry to reconcile access.':v.message||'',updatedAt:v.updatedAt,warnings:v.warnings||[],policyRevision:v.policyRevision};
+ }
+
+ async function sync(){
+ const p=await policy(),actor=await storage.user(),identity=E.identity(actor);
+ if(!identity||!['entitlements.view','entitlements.add','entitlements.edit','entitlements.revoke'].every(c=>E.hasGrant(p,identity,c,'*')))fail('Access synchronization requires a full entitlement administrator.','FORBIDDEN');
+ const [page,policyPage,sp]=await Promise.all([storage.page(working,'space,ancestors,version,operations'),storage.page(host,'space,version,operations'),req('/rest/api/space/'+encodeURIComponent(space)+'?expand=operations')]);
+ if(page.space?.key!==space||policyPage.space?.key!==space||!Array.isArray(page.ancestors))fail('Native access synchronization must stay inside the configured space.','SCOPE');
+ if(!policyPage.operations?.some(o=>o.operation==='update'&&o.targetType==='page')||!page.operations?.some(o=>o.operation==='update'&&o.targetType==='page'))fail('The administrator syncing access needs native Edit on the entitlement host and Working. Authors and reviewers do not need Working Edit.','FORBIDDEN');
+ if(sp.key!==space||sp.operations!=null&&!Array.isArray(sp.operations))fail('Confluence returned invalid space permissions.','SCOPE');
+ const nativeAdmin=Array.isArray(sp.operations)?sp.operations.some(o=>['administer','admin'].includes(o.operation)&&o.targetType==='space'):actor.userKey&&(await permissionList(actor.userKey)).includes('space:administer');
+ if(!nativeAdmin)fail('Sync access must be run by a native space administrator. JSON administration alone cannot grant Confluence permissions.','FORBIDDEN');
+ // Do not broaden unrelated ancestor restrictions. A parent restriction would
+ // still deny access even after this Working-only synchronization.
+ for(const a of page.ancestors){if(!/^\d+$/.test(String(a.id)))fail('Invalid Working ancestry.');const r=await restrictions(String(a.id),'read');if(r.user.length||r.group.length)fail('Working inherits viewing restrictions from page '+a.id+'. A space administrator must reconcile that ancestor before access can be synchronized.');}
+ let journal=await storage.property(host,KEY),state=journal?.value;
+ if(state&&(state.schemaVersion!==1||!Array.isArray(state.managed)||state.managed.some(v=>!v||!E.normalizeSOEID(v.soeid)||!v.userKey||!v.username||!Array.isArray(v.spaceOps)||v.spaceOps.some(op=>!ALLOWED.includes(op)))))fail('Access synchronization state is invalid; preserve it for recovery.');
+ if(state?.lease&&state.lease.until>now())fail('Another access synchronization is running. Wait and retry.','ACCESS_SYNC_BUSY');
+ const token=uuid(),stamp=await digest(p),targets=roster(p),owned=copy(state?.managed||[]);
+ if(new Set([...targets,...owned].map(x=>x.soeid)).size>MAX_USERS)fail('This synchronization supports up to '+MAX_USERS+' managed people. No access was changed.');
+ state={schemaVersion:1,workingRootPageId:working,policyRevision:p.revision,policyFingerprint:stamp,status:'running',managed:owned,lease:{token,until:now()+120000},actorSOEID:identity.soeid,updatedAt:new Date(now()).toISOString(),warnings:[],message:''};
+ if(journal?.value.workingRootPageId&&journal.value.workingRootPageId!==working)fail('Working changed; reconcile the previous access setup before proceeding.');
+ journal=await storage.putProperty(host,KEY,state,journal?.version.number??null);
+ async function checkpoint(){state.updatedAt=new Date(now()).toISOString();state.lease={token,until:now()+120000};journal=await storage.putProperty(host,KEY,state,journal.version.number);}
+ async function guard(){if(!equal(E.identity(await storage.user()),identity))fail('Your Confluence account changed. Reload before synchronizing.','IDENTITY_MAPPING');const current=await storage.property(host,KEY);if(current?.value.lease?.token!==token||current.version.number!==journal.version.number)fail('Access synchronization changed in another session.','CONFLICT');if(await digest(await policy())!==stamp)fail('Entitlements changed during synchronization. Retry with the latest policy.','CONFLICT');}
+ try {
+  let read=await restrictions(working,'read'),edit=await restrictions(working,'update');const originalRead=copy(read);
+  const protectedUsers=new Set([identity.soeid,...edit.user.map(u=>norm(u.username))]);
+  // Keep an administrator anchor: removing the last viewer would open drafts.
+  if(!read.user.some(u=>norm(u.username)===identity.soeid))read.user.push({type:'known',username:actor.username});
+  const keep=read.user.filter(u=>!owned.some(v=>v.workingRead&&v.soeid===norm(u.username)&&!targets.some(t=>t.soeid===v.soeid))||protectedUsers.has(norm(u.username)));
+  const expected={user:keep,group:read.group};
+  for(const t of targets){
+   await guard();const u=await req('/rest/api/user?username='+encodeURIComponent(t.soeid));
+   if(E.identity(u)?.soeid!==t.soeid||!u.userKey||!u.username)fail('Cannot verify native account '+t.soeid+'.');
+   let item=state.managed.find(x=>x.soeid===t.soeid);
+   if(item&&item.userKey!==u.userKey)fail('Native identity changed for '+t.soeid+'.');
+   if(!item){item={soeid:t.soeid,username:u.username,userKey:u.userKey,spaceOps:[],workingRead:false};state.managed.push(item);}
+   if(!expected.user.some(x=>norm(x.username)===t.soeid)){expected.user.push({type:'known',username:u.username});item.workingRead=true;}
+   // Pre-existing direct viewing grants remain administrator-owned. They are
+   // explicitly reported on revocation instead of silently taking ownership.
+   const before=await permissionList(u.userKey),missing=t.ops.filter(op=>!before.includes(op));
+   item.spaceOps=[...new Set(item.spaceOps.concat(missing))];await checkpoint();
+   if(missing.length){await guard();await req('/rest/api/space/'+encodeURIComponent(space)+'/permissions/user/'+encodeURIComponent(u.userKey)+'/grant','PUT',missing.map(op=>{const [targetType,operationKey]=op.split(':');return {targetType,operationKey};}));}
+   const after=await permissionList(u.userKey);if(t.ops.some(op=>!after.includes(op)))fail('Native space grants were not confirmed for '+t.soeid+'.');
+  }
+  // Preserve parent editing exactly, including native groups. Read subjects
+  // include existing individual editors to satisfy this server's pair rule.
+  for(const u of edit.user)if(!expected.user.some(x=>norm(x.username)===norm(u.username)))expected.user.push(u);
+  for(const g of edit.group)if(!expected.group.some(x=>x.name===g.name))fail('Working has an editing group without a matching viewing restriction. Preserve and reconcile this existing native setup before synchronization.');
+  expected.user.sort((a,b)=>norm(a.username).localeCompare(norm(b.username)));
+  if(!expected.user.length&&!expected.group.length)fail('Cannot remove the last Working viewer.');
+  await checkpoint();await guard();
+  const freshRead=await restrictions(working,'read'),freshEdit=await restrictions(working,'update');
+  // The current administrator anchor was only added to our local plan.
+  if(!equal(freshEdit,edit)||!equal(freshRead,originalRead))fail('Working restrictions changed; retry.','CONFLICT');
+  if(!equal(freshRead,expected)){await req('/rest/api/content/'+working+'/restriction','PUT',[{operation:'read',restrictions:expected},{operation:'update',restrictions:edit}]);}
+  if(!equal(await restrictions(working,'read'),expected)||!equal(await restrictions(working,'update'),edit))fail('Working access was not confirmed. Retry synchronization.');
+  for(const item of state.managed){
+   const target=targets.find(t=>t.soeid===item.soeid),remove=item.spaceOps.filter(op=>!target?.ops.includes(op));
+   if(remove.some(op=>!ALLOWED.includes(op)))fail('An unsupported permission was found in the managed access record.');
+   if(remove.length){
+    if(item.soeid===identity.soeid){state.warnings.push('Your own native permissions were preserved; another administrator must reconcile them.');continue;}
+    await guard();await req('/rest/api/space/'+encodeURIComponent(space)+'/permissions/user/'+encodeURIComponent(item.userKey)+'/revoke','PUT',remove.map(op=>{const [targetType,operationKey]=op.split(':');return {targetType,operationKey};}));
+    const after=await permissionList(item.userKey);if(remove.some(op=>after.includes(op)))fail('Native revocation was not confirmed for '+item.soeid+'.');
+    item.spaceOps=item.spaceOps.filter(op=>!remove.includes(op));
+   }
+   if(!target){const remaining=await permissionList(item.userKey);if(remaining.some(op=>ALLOWED.includes(op)))state.warnings.push(item.soeid+' retains pre-existing native space permissions.');if(expected.user.some(u=>norm(u.username)===item.soeid))state.warnings.push(item.soeid+' retains a pre-existing or administrator Working grant.');else item.workingRead=false;}
+   await checkpoint();
+  }
+  const inactive=new Set(p.records.filter(r=>!targets.some(t=>t.soeid===r.soeid)).map(r=>r.soeid));
+  for(const s of inactive)if(expected.user.some(u=>norm(u.username)===s)&&!state.warnings.some(w=>w.startsWith(s)))state.warnings.push(s+' retains a pre-existing or administrator Working grant.');
+  if(expected.group.length)state.warnings.push('Existing native groups were preserved; group-derived access is not revoked by JSON.');
+  await guard();state.status=state.warnings.length?'attention':'complete';state.message=state.warnings.length?'Managed access synchronized; review retained native access.':'Managed native access synchronized. Working editing permissions were preserved.';
+  state.managed=state.managed.filter(item=>targets.some(t=>t.soeid===item.soeid)||item.spaceOps.length||item.workingRead);
+  state.lease=null;state.updatedAt=new Date(now()).toISOString();journal=await storage.putProperty(host,KEY,state,journal.version.number);return {status:state.status,message:state.message,warnings:state.warnings,policyRevision:p.revision};
+ }catch(e){
+  state.status='incomplete';state.message='JSON entitlements are saved, but native access setup is incomplete. '+e.message;state.lease=null;
+  try{await storage.putProperty(host,KEY,state,journal.version.number);}catch(_){}
+  throw Object.assign(new Error(state.message),{code:'ACCESS_SYNC_INCOMPLETE',status:e.status,cause:e});
+ }
+ }
+ return {sync,status};
+}
+return {create,roster};
 });
 
 ;
@@ -4355,6 +4523,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   function canonical(v){if(Array.isArray(v))return v.map(canonical);if(object(v))return Object.keys(v).sort().reduce(function(r,k){if(v[k]!==undefined)r[k]=canonical(v[k]);return r;},{});return v;}
   function create(config,deps){
     config=config||{};deps=deps||{};
+    var governanceEnabled=config.governanceEnabled===true;
     var native=config.nativePublication||{},rootId=numeric(config.rootPageId||config.pageId||native.publishedRootPageId),workingId=numeric(config.workingRootPageId||native.workingRootPageId);
     var areas=Object.assign({},native.areaPageIds||config.areaPageIds||{}),insightsId=numeric(config.insightsPageId||native.insightsPageId),space=config.spaceKey;
     if(typeof space!=='string'||!/^[A-Za-z0-9_~.-]+$/.test(space)||rootId===workingId)fail('Configure the WCSpedia space and distinct working/root pages.','CONFIGURATION');
@@ -4392,10 +4561,19 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         }
         if(!protectedBy)fail('Set Viewing restrictions on the Working page ('+workingId+') for authors, reviewers and managers. Keep the workspace interface pages accessible.','WORKING_ROOT_UNRESTRICTED');
       }catch(error){aborted(signal);if(!reading)throw error;privacyError=error;}
-      // DC Add page permits creating and editing pages. If space.operations is
-      // present it is authoritative; otherwise verified update on Working is used.
-      var canCreate=Array.isArray(results[2].operations)?op(results[2],'create','page'):op(results[1],'update');
-      return {root:results[0],working:results[1],space:results[2],canCreate:canCreate,draftsProtected:!!protectedBy,protectedBy:protectedBy,creationCode:privacyError?(privacyError.code||'INVALID_PERMISSIONS'):'',creationMessage:privacyError?(privacyError.code==='WORKING_ROOT_UNRESTRICTED'?privacyError.message:'Confluence could not verify Working-page viewing restrictions. '+privacyError.message):''};
+      // Parent editing is not a creation/review capability. Where DC omits
+      // space.operations, query the signed-in user's native space permissions.
+      var canCreate=false,permissionError=null;
+      if(Array.isArray(results[2].operations))canCreate=op(results[2],'create','page');
+      else try {
+        var currentUser=await storage.user(options(signal));
+        if(!currentUser.userKey)fail('Confluence did not return a user key for the native Add page check.','INVALID_PERMISSIONS');
+        var grants=await request('/rest/api/space/'+encodeURIComponent(space)+'/permissions/user/'+encodeURIComponent(currentUser.userKey),null,undefined,signal);
+        if(!Array.isArray(grants))fail('Confluence did not return native space permissions.','INVALID_PERMISSIONS');
+        canCreate=grants.some(function(g){return (!g.spaceKey||g.spaceKey===space)&&g.operation&&g.operation.targetType==='page'&&g.operation.operationKey==='create';});
+      }catch(error){aborted(signal);permissionError=error;}
+      if(!privacyError&&permissionError)privacyError={code:'CREATE_PERMISSION_UNVERIFIED',message:'Confluence could not verify native Add page permission. An administrator should run Sync access in Entitlements. Working-root Edit is not required. '+permissionError.message};
+      return {root:results[0],working:results[1],space:results[2],canCreate:canCreate,draftsProtected:!!protectedBy,protectedBy:protectedBy,creationCode:privacyError?(privacyError.code||'INVALID_PERMISSIONS'):'',creationMessage:privacyError?(['WORKING_ROOT_UNRESTRICTED','CREATE_PERMISSION_UNVERIFIED'].includes(privacyError.code)?privacyError.message:'Confluence could not verify Working-page viewing restrictions. '+privacyError.message):''};
     }
     function directory(catalog,policy,user,previousPeople){
       var bySOEID=new Map(),byId=new Map();
@@ -4551,7 +4729,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if(error.name==='AbortError')throw error;
         // Preserve status/code and UNKNOWN_COMMIT semantics for exact-request
         // recovery. A denial must not become a retry against a looser endpoint.
-        var guidance=error.status===404?'The restriction endpoint or page is unavailable to this account; a successful page GET does not verify this endpoint.':error.status===401?'Sign in again before checking this same save.':error.status===403||error.code==='FORBIDDEN'?'Ask the space owner to check native Edit and Restrict permissions; JSON entitlements do not grant these.':error.status===400?'Confluence rejected the restriction request; use the server detail below to check the assigned native usernames and permissions.':'The restriction step was not confirmed.';
+        var guidance=error.status===404?'The restriction endpoint or page is unavailable to this account; a successful page GET does not verify this endpoint.':error.status===401?'Sign in again before checking this same save.':error.status===403||error.code==='FORBIDDEN'?'The signed-in account cannot change native page restrictions. A space administrator should run Sync access in Entitlements to apply the required native space grants, then verify native Edit access on this document. Working-root Edit is not required. Blogs skip restriction writes, so a successful Blog save does not test this permission. Keep the Working parent’s viewing restrictions. After access is corrected, use Check save / retry the same action; do not create another document. Saving JSON alone does not grant native permission; synchronization must succeed.':error.status===400?'Confluence rejected the restriction request; use the server detail below to check the assigned native usernames and permissions.':'The restriction step was not confirmed.';
         error.message='Job aid page '+p.id+': could not '+stage+'. '+guidance+' Required individual editors: '+subjectsForWrite.map(function(u){return u.username;}).join(', ')+'. Working drafts need matching View and Edit access; a first publication must retain space-reader visibility. '+error.message;
         if([400,403,404,405].includes(error.status)||['FORBIDDEN','UNKNOWN_COMMIT'].includes(error.code))error.recoverable=true;
         throw error;
@@ -4688,7 +4866,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if(!ctx.bounds.canCreate||!E.hasGrant(ctx.policy,who,'content.create','*'))fail('Your account needs Add page permission and the WCSpedia creation grant.','FORBIDDEN');
         if(Content.isInsightType(command.fields.type)&&!Content.isDirectPublication(command.fields))fail('Publish non-Job-aid content directly to Insights.','INVALID_MAPPING');
         if((!areas[command.fields.area]&&!(Content.isDirectPublication(command.fields)))||!TYPES.includes(command.fields.type))fail('Choose a configured business area and content type.','INVALID_MAPPING');
-        doc=W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:new Date().toISOString(),requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,create:true}});
+        doc=W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:new Date().toISOString(),requireGovernance:governanceEnabled,reviewScheduleRequired:governanceEnabled,permissionContext:{actorId:actor.id,documentId:documentKey,create:true}});
         statePreflight(doc,ctx.dir.people);await Renderer.collectMedia(doc,W.currentVersion(doc),{media:{}});
         if(!Content.isDirectPublication(doc))await assignments(doc,ctx.dir.people,signal);
         p=await createPage('WCSpedia working '+documentKey,documentKey,'working',requestId,signal);state=await readState(p,signal);
@@ -4715,7 +4893,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         var at=new Date().toISOString();
         var relevantIds=new Set([doc.ownerId,doc.authorId,doc.reviewerId,doc.approverId,actor.id,command.ownerId].concat((doc.audit||[]).map(function(e){return e.actorId;})));
         var snapshotPeople=ctx.dir.people.filter(function(person){return relevantIds.has(person.id);});
-        if(!creating)statePreflight(W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:at,effectiveAt:at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,requireGovernance:true,permissionContext:{actorId:actor.id,documentId:documentKey,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')}}),snapshotPeople);
+        if(!creating)statePreflight(W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:at,effectiveAt:at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,requireGovernance:governanceEnabled,reviewScheduleRequired:governanceEnabled,permissionContext:{actorId:actor.id,documentId:documentKey,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')}}),snapshotPeople);
         journal=await storage.putProperty(p.id,JOURNAL,{schemaVersion:1,requestId:requestId,fingerprint:fingerprint,actorSOEID:who.soeid,documentKey:documentKey,action:command.action,at:at,people:snapshotPeople,expectedNativeVersion:p.version.number,priorPublishedParentId:publicationParent(doc),priorStateRevision:state.state.revision,priorAttachmentVersion:state.state.attachmentVersion||0,priorFingerprint:state.state.fingerprint,stage:'reserved',done:false},journal?journal.version.number:null,options(signal));
       }
       async function checkpoint(changes){journal=await storage.putProperty(p.id,JOURNAL,Object.assign({},journal.value,changes),journal.version.number,options(signal));}
@@ -4724,7 +4902,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if(state.state.revision!==j.priorStateRevision&&!(state.state.pointer&&state.state.pointer.pending&&state.state.pointer.pending.requestId===requestId&&state.state.pointer.pending.expectedRevision===j.priorStateRevision))fail('The document state changed while this action was pending.','CONFLICT');
       if(['request-changes','complete-review','approve'].includes(command.action)&&actor.role==='Reader')fail('Your active review role is no longer available.','FORBIDDEN');
       var permissionContext={actorId:actor.id,documentId:documentKey,create:creating,edit:E.hasGrant(ctx.policy,who,'content.edit',documentKey)&&op(p,'update'),delete:E.hasGrant(ctx.policy,who,'content.delete',documentKey)&&op(p,'delete')};
-      doc=creating?W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,permissionContext:permissionContext}):W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,effectiveAt:j.at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,permissionContext:permissionContext,requireGovernance:true});
+      doc=creating?W.createDocument(command.fields,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,permissionContext:permissionContext}):W.transition(doc,command.action,{people:ctx.dir.people,actorId:actor.id,actorSOEID:who.soeid,now:j.at,effectiveAt:j.at,nextReviewAt:command.nextReviewAt,governanceReview:command.governanceReview,expectedVersion:command.expectedVersion,expectedRevision:command.expectedRevision,expectedAuditLength:command.expectedAuditLength,changes:command.changes,ownerId:command.ownerId,comment:command.comment,permissionContext:permissionContext,requireGovernance:governanceEnabled,reviewScheduleRequired:governanceEnabled});
       if(!op(p,'update'))fail('Confluence no longer permits this working-page action.','FORBIDDEN');
       // Insights uses ordinary native create/edit access, like the earlier blog
       // publisher. Only the approval workflow provisions assigned editors.
@@ -5534,9 +5712,24 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         rootPageId: pageId, extraRootPageIds: [nativePublication.workingRootPageId].filter(Boolean),
         allowedPageIds: [attachmentPageId, entitlementPageId],
         storagePageIds: [attachmentPageId, entitlementPageId],
-        protectedPageIds: [pageId, attachmentPageId, entitlementPageId]
+        protectedPageIds: [pageId, attachmentPageId, entitlementPageId],
+        allowSpacePermissionSync: config.nativeAccessSync === true
       }, { fetch: fetcher, crypto: dependencies.crypto || root.crypto, origin: origin });
       return spaceStore;
+    }
+    var spaceAccessSync;
+    function nativeAccessSynchronizer() {
+      if (!nativeSession || config.nativeAccessSync !== true) fail('Install the current Entitlements macro to enable native access synchronization.','CONFIGURATION');
+      if (!spaceAccessSync) spaceAccessSync = nativeModule('WCSSpaceAccessSync','space-access-sync.js').create(Object.assign({},config,{spaceKey:config.spaceKey||verifiedSearchSpace,entitlementsPageId:entitlementPageId}), {
+        storage:nativeStorage(),entitlements:entitlementHelper(),crypto:dependencies.crypto||root.crypto,
+        uuid:function(){return (dependencies.crypto||root.crypto).randomUUID();},
+        loadPolicy:async function(){return (await readEntitlementAttachment()).policy;}
+      });
+      return spaceAccessSync;
+    }
+    async function syncEntitlementAccess() {
+      await nativeAccessSynchronizer().sync();
+      return last ? load() : loadAccess();
     }
     function nativeWorkflow() {
       if (!spaceWorkflow) spaceWorkflow = nativeModule('WCSSpaceWorkflow', 'space-workflow.js').create(config, {
@@ -5871,6 +6064,10 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
         if (nativeSession) { access.entitlementPointerRevision = attachment.pointerRevision; access.entitlementFingerprint = attachment.fingerprint; }
         access.nativePermissions.root = rootPage.operations;
         access.nativePermissions.entitlements = policyPage.operations;
+        if(nativeSession && config.nativeAccessSync===true && config.pageRole==='entitlements' && E.hasGrant(access.entitlementPolicy,identity,'entitlements.view','*')) {
+          try {access.entitlementSync=await nativeAccessSynchronizer().status(access.entitlementPolicy);}
+          catch(error){access.entitlementSync={status:'incomplete',message:'Native access status could not be read. '+error.message};}
+        }
         if (nativeSession && E.hasGrant(access.entitlementPolicy, identity, 'content.create', '*')) {
           var nativeCapability;
           try { nativeCapability = await nativeWorkflow().capabilities({ user: user, policy: access.entitlementPolicy, access: access, signal: signal }); }
@@ -6245,27 +6442,27 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       if (!who || JSON.stringify(who) !== JSON.stringify(priorIdentity)) fail('Your Confluence account changed. Reload before saving.', 'IDENTITY_MAPPING');
       // Refresh the policy and actual policy-host permissions for every save.
       var fresh = await resolveAccess(user, {}, null);
-      var fingerprint = JSON.stringify(command), crypto = dependencies.crypto || root.crypto;
+      var commandFingerprint = JSON.stringify(command), crypto = dependencies.crypto || root.crypto;
       var pending = pendingEntitlementCommand;
       if (!pending && priorFingerprint !== undefined && priorFingerprint !== fresh.entitlementFingerprint) {
         accessLast = priorAccess;
         fail('The entitlement file changed while this form was open. Reload and review the latest grants before saving.', 'CONFLICT');
       }
-      if (pending && pending.fingerprint === fingerprint && pending.expectedPolicy) {
+      if (pending && pending.commandFingerprint === commandFingerprint && pending.expectedPolicy) {
         var confirmedEvent = fresh.entitlementPolicy.audit.find(function (event) { return event.revision === pending.expectedPolicy.revision; });
         var expectedEvent = pending.expectedPolicy.audit[pending.expectedPolicy.audit.length - 1];
         if (confirmedEvent && JSON.stringify(confirmedEvent) === JSON.stringify(expectedEvent)) {
           pendingEntitlementCommand = null;
-          return last ? load() : clone(fresh);
+          return finishEntitlementSync(last ? await load() : clone(fresh));
         }
       }
-      if (!pending || pending.fingerprint !== fingerprint || !pending.expectedPolicy) {
+      if (!pending || pending.commandFingerprint !== commandFingerprint || !pending.expectedPolicy) {
         if (!crypto || typeof crypto.randomUUID !== 'function') fail('A secure request identifier requires HTTPS.', 'CONFIGURATION');
         var at = Date.now(), audit = fresh.entitlementPolicy.audit;
         if (audit.length) at = Math.max(at, Date.parse(audit[audit.length - 1].at));
         var expected = E.applyCommand(fresh.entitlementPolicy, command, { identity: who, native: fresh.nativePermissions, now: new Date(at).toISOString() });
         if (utf8Size(JSON.stringify(expected)) > 2 * 1024 * 1024) fail('The policy would exceed its 2 MB limit. Export and archive its history before continuing.', 'INVALID_ENTITLEMENTS');
-        pending = pendingEntitlementCommand = { fingerprint: fingerprint, requestId: crypto.randomUUID(), expectedPolicy: expected,
+        pending = pendingEntitlementCommand = { commandFingerprint: commandFingerprint, requestId: crypto.randomUUID(), expectedPolicy: expected,
           revision: fresh.entitlementPointerRevision, attachmentVersion: fresh.entitlementAttachmentVersion, fingerprint:fresh.entitlementFingerprint };
       } else {
         E.applyCommand(fresh.entitlementPolicy, command, { identity: who, native: fresh.nativePermissions, now: pending.expectedPolicy.audit[pending.expectedPolicy.audit.length - 1].at });
@@ -6288,6 +6485,20 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       var event = refreshed.entitlementPolicy.audit.find(function (item) { return item.revision === pending.expectedPolicy.revision; });
       if (!event || JSON.stringify(event) !== JSON.stringify(pending.expectedPolicy.audit[pending.expectedPolicy.audit.length - 1])) fail('The saved entitlement change could not be verified. Reload before continuing.', 'REFRESH_REQUIRED');
       pendingEntitlementCommand = null;
+      return finishEntitlementSync(refreshed);
+    }
+    async function finishEntitlementSync(refreshed) {
+      if(config.nativeAccessSync!==true)return refreshed;
+      try {
+        var synchronized=await nativeAccessSynchronizer().sync();
+        // The sync can change native creation access and Working privacy.
+        // Re-read capabilities instead of returning the pre-sync disabled state.
+        try {refreshed=last?await load():await loadAccess();}
+        catch(error){synchronized={status:'attention',message:'Native access was synchronized, but the page could not refresh its permissions. Reload this page. '+error.message};}
+        refreshed.entitlementSync=synchronized;
+      }
+      catch(error){refreshed.entitlementSync={status:'incomplete',message:error.message};}
+      accessLast=clone(refreshed);if(last)last=clone(refreshed);
       return refreshed;
     }
     async function submitEntitlementCommand(command) {
@@ -7024,7 +7235,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       output.complete = true; emit();
       return output;
     }
-    return Object.freeze({ load: load, loadAccess: loadAccess, inspectEntitlementRecovery: inspectEntitlementRecovery, reconcileEntitlementAttachment: reconcileEntitlementAttachment, loadMetrics: loadMetrics, recordView: recordView, submitAction: submitAction, deleteDocument: deleteDocument, submitEntitlementCommand: submitEntitlementCommand, saveAttachment: saveAttachment, searchPages: searchPages, loadLanding: loadLanding, loadPublishedArticle: loadPublishedArticle, invalidateSearch: clearSearchReads, info: function () { return { mode: mode, authoringMode: nativeSession ? 'confluence-session' : 'service', rootPageId: pageId, searchSpaceKey: verifiedSearchSpace, attachmentPageId: attachmentPageId, attachmentFilename: filename, workflowConfigured: nativeSession || !!workflowURL, workspaceConfigured: nativeSession || !!workspaceURL, entitlementsConfigured: policyConfigured, entitlementsPageId: entitlementPageId, entitlementsSource: entitlementSource, entitlementsFilename: entitlementFilename, entitlementServiceConfigured: nativeSession || !!entitlementURL, metricsConfigured: mode === 'confluence' && (nativeSession || !!metricsURL), directAttachmentWrites: config.allowAttachmentWrites === true, nativePublicationEnabled: publicationEnabled }; } });
+    return Object.freeze({ load: load, loadAccess: loadAccess, inspectEntitlementRecovery: inspectEntitlementRecovery, reconcileEntitlementAttachment: reconcileEntitlementAttachment, loadMetrics: loadMetrics, recordView: recordView, submitAction: submitAction, deleteDocument: deleteDocument, submitEntitlementCommand: submitEntitlementCommand, syncEntitlementAccess: syncEntitlementAccess, saveAttachment: saveAttachment, searchPages: searchPages, loadLanding: loadLanding, loadPublishedArticle: loadPublishedArticle, invalidateSearch: clearSearchReads, info: function () { return { mode: mode, authoringMode: nativeSession ? 'confluence-session' : 'service', rootPageId: pageId, searchSpaceKey: verifiedSearchSpace, attachmentPageId: attachmentPageId, attachmentFilename: filename, workflowConfigured: nativeSession || !!workflowURL, workspaceConfigured: nativeSession || !!workspaceURL, entitlementsConfigured: policyConfigured, entitlementsPageId: entitlementPageId, entitlementsSource: entitlementSource, entitlementsFilename: entitlementFilename, entitlementServiceConfigured: nativeSession || !!entitlementURL, metricsConfigured: mode === 'confluence' && (nativeSession || !!metricsURL), directAttachmentWrites: config.allowAttachmentWrites === true, nativePublicationEnabled: publicationEnabled }; } });
   }
   return Object.freeze({ create: create, validateData: validateData, addCategory: addCategory, facetLabel: facetLabel });
 });
@@ -7134,7 +7345,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   };
   const svg=name=>'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+symbols[name]+'</svg>';
   function create(options) {
-    const content=root.WCSEditorContent,v=options.version||{},doc=options.document;
+    const content=root.WCSEditorContent,v=options.version||{},doc=options.document,governanceEnabled=options.governanceEnabled!==false;
     let slugFallback=slugify(doc?.id||'')||id('document').slice(0,25),slugMode=doc||v.slug?'saved':'auto';
     const reservedSlugs=new Set((options.existingSlugs||[]).filter(value=>typeof value==='string'));
     function automaticSlug(title){
@@ -7188,7 +7399,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       const blog=directInsight();
       find('#editor-area').closest('.editor-field').hidden=blog;
       find('.editor-ownership').hidden=blog;
-      find('.editor-governance').hidden=blog;
+      if(find('.editor-governance'))find('.editor-governance').hidden=blog;
       find('#editor-insights-destination').hidden=!blog;
       find('.editor-help p').textContent=blog?'Publish this article directly to Insights. No reviewer or manager approval is required.':'Save your draft, then submit it for review. Your assigned manager approves the reviewed revision before it is published.';
       if(!busy&&!retryFields)find('#editor-save-button').textContent=blog?'Publish to Insights':'Save draft';
@@ -7200,6 +7411,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       return '<fieldset class="editor-governance-source" data-governance-source><legend>Source '+number+'</legend><div class="editor-governance-source-heading">'+field('title','Source title','maxlength="300"')+'<button type="button" class="link" data-governance-remove-source aria-label="Remove source '+number+'">Remove</button></div>'+field('url','Source URL','type="url" maxlength="2000" placeholder="https://…"')+'<input type="hidden" data-source-field="id" value="'+escape(value.id||id('source'))+'"><div class="editor-governance-source-meta">'+field('version','Source version','maxlength="120" placeholder="Version or Not versioned"')+field('lastVerifiedAt','Last verified','type="date"')+'</div></fieldset>';
     }
     function governanceSection(){
+      if(!governanceEnabled)return '';
       const g=governanceInitial;
       return '<details class="editor-governance"'+(directInsight()?' hidden':'')+'><summary><span><strong>Governance</strong><small>Classification, ownership, scope, and authoritative sources</small></span>'+svg('down')+'</summary><div class="editor-governance-body"><p class="editor-field-hint">Complete this information before submission. Drafts can remain incomplete. Classification and wording checks support the reviewer’s judgment; they do not certify compliance.</p>'+(!governanceTouched?'<p class="editor-governance-legacy" data-governance-legacy>This existing document has no recorded governance classification. Opening this section does not assign one.</p>':'')+'<div class="editor-governance-grid">'+select('editor-governance-classification','Document classification',[{id:'unclassified',name:'Unclassified · review required'},{id:'other-nhd',name:'Other NHD'},{id:'other-bod',name:'Other BOD'},{id:'formal-reference',name:'Formal governance reference'}],g.classification)+input('editor-governance-owningTeam','Owning team',g.owningTeam,'maxlength="200" placeholder="Team accountable for this document"')+'</div>'+textarea('editor-governance-scope','Scope',g.scope,'maxlength="2000" rows="3" placeholder="What this document covers and its limits"')+textarea('editor-governance-audience','Intended audience',g.audience,'maxlength="1000" rows="2" placeholder="Who uses this guidance"')+input('editor-governance-supportingTeam','Supporting team (optional)',g.supportingTeam,'maxlength="300"')+textarea('editor-governance-classificationRationale','Classification rationale',g.classificationRationale,'maxlength="2000" rows="3" placeholder="Explain why this classification fits the document"')+'<section class="editor-governance-sources" aria-label="Authoritative sources"><div class="editor-section-title"><div><h3>Authoritative sources</h3><p>Keep references traceable to their source, version, and verification date.</p></div><button type="button" class="button secondary" data-governance-add-source>Add source</button></div><div data-governance-sources>'+g.sources.map(governanceSource).join('')+'</div></section><div class="editor-governance-grid">'+select('editor-governance-reviewBasis','Review basis',[{id:'business-best-practice',name:'Business best practice'},{id:'formal-governance',name:'Formal governance'}],g.reviewBasis)+'<div class="editor-governance-target"><span>Review target</span><strong data-governance-review-caption>24 calendar months after approval</strong><small data-governance-review-target>The target is set when this revision is approved.</small></div></div><div class="editor-governance-assessment" data-governance-assessment role="status" aria-live="polite"></div></div></details>';
     }
@@ -7210,7 +7422,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       result.sources=governanceSources();return result;
     }
     function restoreGovernance(value){
-      if(!value||typeof value!=='object')return;
+      if(!governanceEnabled||!value||typeof value!=='object')return;
       governanceTouched=true;for(const key of ['classification','owningTeam','scope','audience','supportingTeam','classificationRationale','reviewBasis']){const field=find('#editor-governance-'+key);field.value=value[key]||'';if(field.tagName==='SELECT')field.dispatchEvent(new Event('input',{bubbles:true}));}
       find('[data-governance-sources]').innerHTML=(value.sources||[]).map(governanceSource).join('');find('.editor-governance').open=true;
     }
@@ -7246,7 +7458,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     function fields(){
       const text=id=>find('#'+id).value.trim();
       const tags=Object.fromEntries(Object.keys(tagValues).map(kind=>[kind,content.validateTags([...tagValues[kind],...text('editor-'+kind).split(',').map(s=>s.trim()).filter(Boolean)],kind)]));
-      return {commentsEnabled:content.validateCommentsEnabled(find('#editor-comments-enabled').value==='true'?true:find('#editor-comments-enabled').value==='false'?false:null),title:text('editor-title'),summary:text('editor-summary'),slug:text('editor-slug'),type:doc?.type||text('editor-type'),area:directInsight()?'insights':doc?.area||text('editor-area'),...(directInsight()?{publicationMode:content.publicationModeFor(doc?.type||text('editor-type'))}:{}),reviewerId:directInsight()?null:doc?.reviewerId||text('editor-reviewer'),approverId:directInsight()?null:doc?.approverId||text('editor-approver'),bodyMarkdown:bodyMarkdown(),highlights:text('editor-highlights').split('\n').map(s=>s.trim()).filter(Boolean),cover:cover?{src:cover.src,alt:text('editor-cover-alt'),caption:text('editor-cover-caption')}:null,...tags,assets:clone(assets),attachments:clone(attachments),...(sourceMetadata?{sourceMetadata:clone(sourceMetadata)}:{}),...(!directInsight()&&governanceTouched?{governance:governanceFields()}:{}),comment:text('editor-comment')};
+      return {commentsEnabled:content.validateCommentsEnabled(find('#editor-comments-enabled').value==='true'?true:find('#editor-comments-enabled').value==='false'?false:null),title:text('editor-title'),summary:text('editor-summary'),slug:text('editor-slug'),type:doc?.type||text('editor-type'),area:directInsight()?'insights':doc?.area||text('editor-area'),...(directInsight()?{publicationMode:content.publicationModeFor(doc?.type||text('editor-type'))}:{}),reviewerId:directInsight()?null:doc?.reviewerId||text('editor-reviewer'),approverId:directInsight()?null:doc?.approverId||text('editor-approver'),bodyMarkdown:bodyMarkdown(),highlights:text('editor-highlights').split('\n').map(s=>s.trim()).filter(Boolean),cover:cover?{src:cover.src,alt:text('editor-cover-alt'),caption:text('editor-cover-caption')}:null,...tags,assets:clone(assets),attachments:clone(attachments),...(sourceMetadata?{sourceMetadata:clone(sourceMetadata)}:{}),...(governanceEnabled&&!directInsight()&&governanceTouched?{governance:governanceFields()}:{}),comment:text('editor-comment')};
     }
     function saveRecovery(){
       if(!host?.isConnected||!dirty||busy)return;
@@ -7658,6 +7870,21 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   function resolve(href,config,currentUrl){
     if(typeof href==='string'&&/^#\/search(?:\?|$)/.test(href))href='#/?focus=search';
     const role=roleFor(href);
+    // Area hosts reuse the landing pair, but each native parent opens its own
+    // Explore scope. The actual home link must still leave that area host.
+    if(role==='home'&&config.mode==='confluence'){
+      const [path,query='']=href.slice(1).split('?');
+      let area=new URLSearchParams(query).get('area');
+      if(path.startsWith('/topic/'))try{area=decodeURIComponent(path.slice(7));}catch(_){area=null;}
+      const mappings=config.nativePublication?.areaPageIds||{},id=Object.prototype.hasOwnProperty.call(mappings,area)?String(mappings[area]):'';
+      if(/^[1-9]\d{0,19}$/.test(id)){
+        if(config.businessArea===area)return href;
+        try{const target=new URL((config.contextPath||'/confluence')+'/pages/viewpage.action',currentUrl);target.searchParams.set('pageId',id);target.hash=href.slice(1);return target.href;}catch(_){}
+      }
+      if(config.businessArea&&(path==='/'||path==='/results')&&!area&&config.pages?.home){
+        try{const current=new URL(currentUrl),target=new URL(config.pages.home,current);if(target.origin===current.origin){target.hash=isDefaultRoute(href,'home')?'':href.slice(1);return target.href;}}catch(_){}
+      }
+    }
     if(!role||!config.pages||role===(config.pageRole||'home')||!config.pages[role])return href;
     try{
       const current=new URL(currentUrl),target=new URL(config.pages[role],current);
@@ -7671,6 +7898,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
   function initialHash(config){
     if(config.pageRole==='faq')return '#/faq';
     if(config.documentId)return '#/document/'+encodeURIComponent(config.documentId);
+    if(config.pageRole==='home'&&typeof config.businessArea==='string'&&/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(config.businessArea))return '#/topic/'+encodeURIComponent(config.businessArea);
     if(config.initialView==='insights'||config.pageRole==='insights')return '#/insights';
     if(config.initialView==='saved'||config.pageRole==='saved')return '#/saved';
     if(config.initialView==='mine'||config.pageRole==='mine')return '#/results?view=mine';
@@ -8551,9 +8779,15 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
     },{signal});
     render();
   }
+  function syncMarkup(options){
+    if(!options.syncAccess)return '';
+    const s=options.nativeSync||{status:'not-configured'},complete=s.status==='complete';
+    const allowed=['entitlements.view','entitlements.add','entitlements.edit','entitlements.revoke'].every(options.can);
+    return '<section class="panel" aria-label="Native access setup"><h2>'+ (complete?'Native access synchronized':'Native access needs attention')+'</h2><p role="status" data-sync-status>'+esc(s.message||'Synchronize existing entitlements once. Future saves synchronize automatically.')+'</p><p class="quiet-note">An entitlement administrator with native Space Admin access runs this synchronization. It manages the required space grants and Working viewing access. Working editing stays unchanged. Existing grants and groups remain under native administration.</p>'+(s.warnings?.length?'<ul>'+s.warnings.map(w=>'<li>'+esc(w)+'</li>').join('')+'</ul>':'')+(allowed?'<button type="button" class="button secondary" data-entitlement-sync>Sync access</button>':'')+'</section>';
+  }
   function markup(options){
     if(!options.can('entitlements.view'))return accessDenied(options);
-    return '<section class="press-heading page-panel"><div class="discovery-container"><nav class="breadcrumbs"><a href="#/">WCSpedia</a><span aria-hidden="true">›</span><span>Entitlements</span></nav><div class="eyebrow">Shared access management</div><div class="results-title-row"><div><h1>The right access. One place.</h1><p>Manage who can create, maintain, and administer our knowledge.</p></div>'+(options.can('entitlements.add')?'<button class="button" data-entitlement="add"'+actionAttributes(options)+'>Add entitlement <span aria-hidden="true">＋</span></button>':'')+'</div></div></section><div class="discovery-container entitlement-directory"><div class="entitlement-scope-note">'+lock+'<p>Access requires a matching SOEID entitlement and permission on the Confluence page. Document permissions do not grant access to administer entitlements.</p></div>'+(options.access&&options.access.serviceConnected===false?'<p id="entitlement-save-status" class="quiet-note" role="status">Entitlements loaded. This screen is read-only until the entitlement service is connected. Add, Edit and Revoke are available to authorized administrators once saving is connected. An authorized administrator can maintain '+esc(options.access.filename||'entitlements.json')+' on its Confluence page.</p>':'')+'<div data-entitlement-list></div><section class="entitlement-history"><div class="panel-heading"><div><h2>Access change history</h2><p>Changes saved through WCSpedia record the person, time, reason, and previous values.</p></div><button class="button secondary compact" data-entitlement="export">Export audit CSV</button></div><div data-entitlement-history></div></section></div>';
+    return '<section class="press-heading page-panel"><div class="discovery-container"><nav class="breadcrumbs"><a href="#/">WCSpedia</a><span aria-hidden="true">›</span><span>Entitlements</span></nav><div class="eyebrow">Shared access management</div><div class="results-title-row"><div><h1>The right access. One place.</h1><p>Manage who can create, maintain, and administer our knowledge.</p></div>'+(options.can('entitlements.add')?'<button class="button" data-entitlement="add"'+actionAttributes(options)+'>Add entitlement <span aria-hidden="true">＋</span></button>':'')+'</div></div></section><div class="discovery-container entitlement-directory"><div class="entitlement-scope-note">'+lock+'<p>Access requires a matching SOEID entitlement and permission on the Confluence page. Document permissions do not grant access to administer entitlements.</p></div>'+(options.access&&options.access.serviceConnected===false?'<p id="entitlement-save-status" class="quiet-note" role="status">Entitlements loaded. This screen is read-only until the entitlement service is connected. Add, Edit and Revoke are available to authorized administrators once saving is connected. An authorized administrator can maintain '+esc(options.access.filename||'entitlements.json')+' on its Confluence page.</p>':'')+syncMarkup(options)+'<div data-entitlement-list></div><section class="entitlement-history"><div class="panel-heading"><div><h2>Access change history</h2><p>Changes saved through WCSpedia record the person, time, reason, and previous values.</p></div><button class="button secondary compact" data-entitlement="export">Export audit CSV</button></div><div data-entitlement-history></div></section></div>';
   }
   function mount(root,options){
     if(!options.can('entitlements.view'))return {destroy(){}};
@@ -8574,6 +8808,13 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
       Table.html('<div class="wcs-data-table-actions entitlement-row-actions">'+(options.can('entitlements.edit')?'<button class="button secondary compact" data-entitlement="edit"'+actionAttributes(options)+' data-id="'+esc(r.id)+'" aria-label="Edit access for '+esc(r.soeid)+'">Edit</button>':'')+(options.can('entitlements.revoke')?'<button class="button danger compact" data-entitlement="revoke"'+actionAttributes(options)+' data-id="'+esc(r.id)+'" aria-label="Revoke access for '+esc(r.soeid)+'">Revoke</button>':'')+'</div>')
     ]})),empty:{title:'No matching access records',description:'Try another SOEID, name, or permission.',action:Table.html('<a class="button secondary" href="#/entitlements">Clear search</a>')}});
     host.innerHTML='<form class="wcs-data-table-search entitlement-search" data-entitlement-search><label class="sr-only" for="entitlement-query">Search entitlements</label><input id="entitlement-query" type="search" name="q" maxlength="150" placeholder="Search by SOEID, name, document, or permission" value="'+esc(query)+'"><button class="button" type="submit">Search</button>'+(query?'<a class="link" href="#/entitlements">Clear</a>':'')+'</form><div class="wcs-data-table-results-label entitlement-results-label" role="status">'+rows.length+' '+(rows.length===1?'access record':'access records')+(query?' matching “'+esc(query)+'”':'')+'</div>'+table+(rows.length?'<div class="discovery-pagination entitlement-pagination"><label class="entitlement-history-size" for="entitlement-page-size">Show per page <select id="entitlement-page-size" aria-label="Entitlements per page">'+[10,25,50].map(n=>'<option value="'+n+'"'+(n===pageSize?' selected':'')+'>'+n+'</option>').join('')+'</select></label><span>Showing '+((page-1)*pageSize+1)+'–'+Math.min(page*pageSize,rows.length)+' of '+rows.length+'</span>'+global.WCSPagination.render({totalPages:Math.ceil(rows.length/pageSize),currentPage:page,href,ariaLabel:'Entitlement pages'})+'</div>':'');
+    root.querySelector('[data-entitlement-sync]')?.addEventListener('click',async event=>{
+      if(busy||!options.syncAccess)return;busy=true;const button=event.currentTarget;button.disabled=true;button.setAttribute('aria-busy','true');
+      const status=root.querySelector('[data-sync-status]');status.textContent='Synchronizing native access…';
+      try{const result=await options.syncAccess();if(!destroyed){options.notify(result?.status==='complete'?'Native access synchronized.':'Managed access synchronized; review retained native access.',{type:result?.status==='complete'?'success':'warning'});options.refresh();}}
+      catch(error){if(!destroyed){status.textContent=error.message;options.notify(error.message,{type:'error'});}}
+      finally{busy=false;if(!destroyed){button.disabled=false;button.removeAttribute('aria-busy');}}
+    },{signal:abort.signal});
     function open(action,id){
       if(busy||modal)return;
       if(!options.can('entitlements.'+action)){options.notify('You no longer have permission for this entitlement action.',{type:'warning'});return;}
@@ -8600,7 +8841,7 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
             if(action==='add'&&policy.records.some(r=>r.soeid===command.record.soeid&&r.scope===command.record.scope)){showError('This SOEID already has an entitlement for this scope. Cancel and edit the existing record, or choose a different scope.',form.elements.soeid);return;}
           }
           busy=true;handle.setBusy(true);error.hidden=true;
-          try{await options.save(command);busy=false;handle.setBusy(false);handle.close();if(destroyed)return;options.notify('Entitlements updated · change recorded.',{type:'success'});try{options.refresh();}catch(_){options.notify('The entitlement change was saved. Reload the page to see the updated access.',{type:'warning'});}}
+          try{const sync=await options.save(command);busy=false;handle.setBusy(false);handle.close();if(destroyed)return;options.notify(sync&&sync.status!=='complete'?'Entitlement saved. Native access needs attention; use Sync access.':'Entitlements updated · change recorded.',{type:sync&&sync.status!=='complete'?'warning':'success'});try{options.refresh();}catch(_){options.notify('The entitlement change was saved. Reload the page to see the updated access.',{type:'warning'});}}
           catch(ex){busy=false;handle.setBusy(false);if(destroyed){handle.close();return;}error.hidden=false;error.textContent=ex.message;options.notify(ex.message||'The entitlement change could not be saved.',{type:'error'});if(['CONFLICT','UNKNOWN_COMMIT','REFRESH_REQUIRED','ENTITLEMENTS_PENDING'].includes(ex.code)){reloadRequired=true;form.querySelector('[type="submit"]').disabled=true;error.append(document.createTextNode(' Reload the page before trying again.'));}}
         });
       }});
@@ -9986,5 +10227,5 @@ return Object.freeze({ renderStorage, collectMedia, mediaResources });
 
 ;
 
-  modules['home'] = { version: '6460e0560d33' };
+  modules['home'] = { version: '61a11e73adc4' };
 })();
