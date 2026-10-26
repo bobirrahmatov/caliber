@@ -1,0 +1,6 @@
+WCSpedia logo
+Source: PNG supplied by the user on 16 October 2026.
+Original filename: codex-clipboard-cb9c6cf1-41cd-4bda-af1a-6ba184199015.png
+Stored filename: wcspedia-logo.png
+Treatment: copied byte-for-byte without resizing or other image changes.
+SHA-256: eb99cd76005d2b41a40c7bab1e4a125af3f1568cad4d01657a2acdc3c915c079
